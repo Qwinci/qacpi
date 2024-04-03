@@ -1,0 +1,118 @@
+#pragma once
+#include <stdint.h>
+#include "qacpi/array.hpp"
+
+namespace qacpi {
+	enum class Op : uint8_t {
+		PkgLength,
+		TermArg,
+		SuperName,
+		SuperNameUnresolved,
+		Byte,
+		Word,
+		DWord,
+		NameString,
+		MethodArgs,
+		PkgElements,
+		VarPkgElements,
+		CallHandler
+	};
+
+	enum class OpHandler : uint8_t {
+		None,
+		Store,
+		String,
+		Debug,
+		Concat,
+		Constant,
+		Name,
+		Method,
+		Call,
+		Arg,
+		Local,
+		CondRefOf,
+		RefOf,
+		DerefOf,
+		CopyObject,
+		Buffer,
+		Package,
+		Index,
+		Alias,
+		Scope,
+		Device,
+		External,
+		Mutex,
+		Event,
+		CreateField,
+		Stall,
+		Sleep,
+		Acquire,
+		Signal,
+		Wait,
+		Reset,
+		Release,
+		FromBcd,
+		ToBcd,
+		Revision,
+		Fatal,
+		Timer,
+		Add,
+		Subtract,
+		Increment,
+		Decrement,
+		Multiply,
+		Divide,
+		Shl,
+		Shr,
+		And,
+		Nand,
+		Or,
+		Nor,
+		Xor,
+		Mod,
+		Not,
+		LAnd,
+		LOr,
+		LNot,
+		LEqual,
+		LGreater,
+		LLess,
+		If,
+		Else,
+		While,
+		Noop,
+		Return,
+		Break,
+		Continue,
+		BreakPoint,
+		ToBuffer,
+		OpRegion,
+		FindSetLeftBit,
+		FindSetRightBit,
+		CreateDWordField,
+		CreateWordField,
+		CreateByteField,
+		CreateBitField,
+		CreateQWordField,
+		Field,
+		PowerRes,
+		Processor,
+		ToInteger,
+		ThermalZone,
+		Notify,
+		SizeOf,
+		ObjectType,
+		ToDecimalString,
+		ToHexString,
+		DataRegion
+	};
+
+	struct OpBlock {
+		uint8_t op_count;
+		Op ops[7];
+		OpHandler handler;
+	};
+
+	extern const Array<OpBlock, 0x100> OPS;
+	extern const Array<OpBlock, 0x100> EXT_OPS;
+}
