@@ -5,7 +5,14 @@ and bare-bones, so it's not recommended to be used for anything serious,
 consider using eg. [uACPI](https://github.com/UltraOS/uACPI) instead.
 
 ## Usage
-- Include lib.cmake (with cmake's `include()`) into your projector manually add the cpp files
+- Include lib.cmake (with cmake's `include()`) into your project and link `qacpi_lib` to your executable/library eg.
+```cmake
+include(qacpi/lib.cmake)
+
+add_executable(myexe main.cpp)
+target_link_libraries(myexe PRIVATE qacpi_lib)
+
+```
 ```cpp
 #include "qacpi/context.hpp"
 #include "qacpi/ns.hpp"

@@ -20,6 +20,14 @@ namespace qacpi {
 
 		[[nodiscard]] NamespaceNode* get_child(StringView name) const;
 
+		[[nodiscard]] constexpr NamespaceNode** get_children() const {
+			return children;
+		}
+
+		[[nodiscard]] constexpr size_t get_child_count() const {
+			return child_count;
+		}
+
 		NamespaceNode* public_link {};
 
 	private:
@@ -43,6 +51,5 @@ namespace qacpi {
 		size_t child_cap {};
 		ObjectRef object {ObjectRef::empty()};
 		NamespaceNode* link {};
-		Context* _context {};
 	};
 }

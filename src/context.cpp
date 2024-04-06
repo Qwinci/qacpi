@@ -123,13 +123,28 @@ Context::~Context() {
 }
 
 Status Context::load_table(const uint8_t* aml, uint32_t size) {
-	return Interpreter {this, static_cast<uint8_t>(revision >= 2 ? 8 : 4)}.execute(aml, size);
+	auto* mem = qacpi_os_malloc(sizeof(Interpreter));
+	if (!mem) {
+		return Status::NoMemory;
+	}
+	auto* interp = construct<Interpreter>(mem, this, static_cast<uint8_t>(revision >= 2 ? 8 : 4));
+
+	auto status = interp->execute(aml, size);
+
+	interp->~Interpreter();
+	qacpi_os_free(mem, sizeof(Interpreter));
+
+	return status;
 }
 
 Status Context::evaluate(StringView name, ObjectRef& res, ObjectRef* args, int arg_count) {
-	Interpreter interp {this, static_cast<uint8_t>(revision >= 2 ? 8 : 4)};
+	auto* mem = qacpi_os_malloc(sizeof(Interpreter));
+	if (!mem) {
+		return Status::NoMemory;
+	}
+	auto* interp = construct<Interpreter>(mem, this, static_cast<uint8_t>(revision >= 2 ? 8 : 4));
 
-	auto* node = interp.create_or_get_node(name, Interpreter::SearchFlags::Search);
+	auto* node = interp->create_or_get_node(name, Interpreter::SearchFlags::Search);
 	if (!node) {
 		return Status::MethodNotFound;
 	}
@@ -138,10 +153,18 @@ Status Context::evaluate(StringView name, ObjectRef& res, ObjectRef* args, int a
 		return Status::InternalError;
 	}
 	if (node->object->get<Method>()) {
-		return interp.invoke_method(node, res, args, arg_count);
+		auto status = interp->invoke_method(node, res, args, arg_count);
+
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
+		return status;
 	}
 	else {
 		res = node->object;
+
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
+
 		return Status::Success;
 	}
 }
@@ -151,7 +174,11 @@ Status Context::evaluate(NamespaceNode* node, StringView name, ObjectRef& res, O
 		return Status::MethodNotFound;
 	}
 
-	Interpreter interp {this, static_cast<uint8_t>(revision >= 2 ? 8 : 4)};
+	auto* mem = qacpi_os_malloc(sizeof(Interpreter));
+	if (!mem) {
+		return Status::NoMemory;
+	}
+	auto* interp = construct<Interpreter>(mem, this, static_cast<uint8_t>(revision >= 2 ? 8 : 4));
 
 	node = node->get_child(name);
 	if (!node) {
@@ -163,7 +190,7 @@ Status Context::evaluate(NamespaceNode* node, StringView name, ObjectRef& res, O
 		return Status::InternalError;
 	}
 	if (node->object->get<Method>()) {
-		auto status = interp.invoke_method(node, res, args, arg_count);
+		auto status = interp->invoke_method(node, res, args, arg_count);
 		if (status == Status::Success) {
 			if (res) {
 				while (auto ref = res->get<Ref>()) {
@@ -174,10 +201,18 @@ Status Context::evaluate(NamespaceNode* node, StringView name, ObjectRef& res, O
 				}
 			}
 		}
+
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
+
 		return status;
 	}
 	else {
 		res = node->object;
+
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
+
 		return Status::Success;
 	}
 }
@@ -211,7 +246,6 @@ Status Context::init_namespace() {
 		bool examine_children = node->_name[0] == 0;
 
 		if (status == Status::Success) {
-			LOG << "qacpi: _STA successful for " << node->name() << endlog;
 			auto value = res->get_unsafe<uint64_t>();
 			if (!(value & DEVICE_PRESENT) && (value & DEVICE_FUNCTIONING)) {
 				examine_children = true;
@@ -233,10 +267,7 @@ Status Context::init_namespace() {
 
 		if (run_ini) {
 			status = evaluate(node, "_INI", res);
-			if (status == Status::Success) {
-				LOG << "qacpi: _INI successful for " << node->name() << endlog;
-			}
-			else if (status != Status::MethodNotFound) {
+			if (status != Status::Success && status != Status::MethodNotFound) {
 				LOG << "qacpi: error while running _INI for " << node->name() << endlog;
 			}
 		}

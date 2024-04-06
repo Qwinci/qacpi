@@ -6,19 +6,18 @@
 using namespace qacpi;
 
 Status Interpreter::execute(const uint8_t* aml, uint32_t size) {
-	Frame frame {
-		.start = aml,
-		.end = aml + size,
-		.ptr = aml,
-		.parent_scope = nullptr,
-		.op_blocks {},
-		.need_result = false,
-		.is_method = false,
-		.type = Frame::Scope
-	};
-	if (!frames.push(move(frame))) {
+	auto* frame = frames.push();
+	if (!frame) {
 		return Status::NoMemory;
 	}
+
+	frame->start = aml;
+	frame->end = aml + size;
+	frame->ptr = aml;
+	frame->need_result = false;
+	frame->is_method = false;
+	frame->type = Frame::Scope;
+
 	return parse();
 }
 
@@ -181,19 +180,18 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 			}
 		}
 
-		Frame new_frame {
-			.start = method->aml,
-			.end = method->aml + method->size,
-			.ptr = method->aml,
-			.parent_scope = current_scope,
-			.op_blocks {},
-			.need_result = true,
-			.is_method = true,
-			.type = Frame::Scope
-		};
-		if (!frames.push(move(new_frame))) {
+		auto* new_frame = frames.push();
+		if (!new_frame) {
 			return Status::NoMemory;
 		}
+
+		new_frame->start = method->aml;
+		new_frame->end = method->aml + method->size;
+		new_frame->ptr = method->aml;
+		new_frame->parent_scope = current_scope;
+		new_frame->need_result = true;
+		new_frame->is_method = true;
+		new_frame->type = Frame::Scope;
 
 		auto* method_node = NamespaceNode::create("_MTH");
 		if (!method_node) {
@@ -202,9 +200,13 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 		method_node->parent = node->parent;
 		current_scope = method_node;
 
-		MethodFrame method_frame {};
-		method_frame.node_link = method_node;
-		method_frame.serialize_mutex = &method->mutex;
+		auto* method_frame = method_frames.push();
+		if (!method_frame) {
+			return Status::NoMemory;
+		}
+
+		method_frame->node_link = method_node;
+		method_frame->serialize_mutex = &method->mutex;
 		for (int i = 0; i < method->arg_count; ++i) {
 			ObjectRef arg;
 			if (!arg) {
@@ -213,11 +215,7 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 
 			auto copy = args[i];
 			arg->data = Ref {.type = Ref::Arg, .inner {move(copy)}};
-			method_frame.args[i] = move(arg);
-		}
-
-		if (!method_frames.push(move(method_frame))) {
-			return Status::NoMemory;
+			method_frame->args[i] = move(arg);
 		}
 
 		auto status = parse();
@@ -609,7 +607,7 @@ Status Interpreter::write_field(Field* field, uint64_t value) {
 	}
 
 	if (field->update == FieldUpdate::Preserve) {
-		if (field->total_bit_size != field->access_size * 8) {
+		if (field->total_bit_size < field->access_size * 8) {
 			if (region.space == RegionSpace::SystemMemory) {
 				if (field->lock) {
 					context->gl->lock(0xFFFF);
@@ -1338,16 +1336,6 @@ Status Interpreter::parse_field_list(Frame& frame, const ObjectRef& region, uint
 			switch (access_type) {
 				// AnyAcc
 				case 0:
-					if (byte_size <= 2) {
-						access_size = 2;
-					}
-					else if (byte_size <= 4) {
-						access_size = 4;
-					}
-					else {
-						access_size = 8;
-					}
-					break;
 				// ByteAcc
 				case 1:
 					access_size = 1;
@@ -1412,6 +1400,8 @@ Status Interpreter::parse_field_list(Frame& frame, const ObjectRef& region, uint
 	return Status::Success;
 }
 
+#pragma GCC push_options
+#pragma GCC optimize ("O2")
 Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block, bool need_result) {
 	switch (block.block->handler) {
 		case OpHandler::None:
@@ -1831,19 +1821,17 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		{
 			auto& args = objects[block.objects_at_start].get_unsafe<MethodArgs>();
 
-			Frame new_frame {
-				.start = args.method->aml,
-				.end = args.method->aml + args.method->size,
-				.ptr = args.method->aml,
-				.parent_scope = current_scope,
-				.op_blocks {},
-				.need_result = need_result,
-				.is_method = true,
-				.type = Frame::Scope
-			};
-			if (!frames.push(move(new_frame))) {
+			auto* new_frame = frames.push();
+			if (!new_frame) {
 				return Status::NoMemory;
 			}
+			new_frame->start = args.method->aml;
+			new_frame->end = args.method->aml + args.method->size;
+			new_frame->ptr = args.method->aml;
+			new_frame->parent_scope = current_scope;
+			new_frame->need_result = need_result;
+			new_frame->is_method = true;
+			new_frame->type = Frame::Scope;
 
 			auto* node = NamespaceNode::create("_MTH");
 			if (!node) {
@@ -1852,9 +1840,13 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			node->parent = args.parent_scope;
 			current_scope = node;
 
-			MethodFrame method_frame {};
-			method_frame.node_link = node;
-			method_frame.serialize_mutex = &args.method->mutex;
+			auto* method_frame = method_frames.push();
+			if (!method_frame) {
+				return Status::NoMemory;
+			}
+
+			method_frame->node_link = node;
+			method_frame->serialize_mutex = &args.method->mutex;
 			for (int i = args.method->arg_count; i > 0; --i) {
 				ObjectRef arg_wrapper;
 				if (!arg_wrapper) {
@@ -1876,14 +1868,10 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 				arg_wrapper->data = Ref {.type = Ref::Arg, .inner {move(arg)}};
 
-				method_frame.args[i - 1] = move(arg_wrapper);
+				method_frame->args[i - 1] = move(arg_wrapper);
 			}
 
 			objects.pop();
-
-			if (!method_frames.push(move(method_frame))) {
-				return Status::NoMemory;
-			}
 
 			break;
 		}
@@ -2266,22 +2254,21 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
-				Frame new_frame {
-					.start = frame.ptr,
-					.end = frame.ptr + len,
-					.ptr = frame.ptr,
-					.parent_scope = current_scope,
-					.op_blocks {},
-					.need_result = false,
-					.is_method = false,
-					.type = Frame::Scope
-				};
-				current_scope = node;
-				frame.ptr += len;
-
-				if (!frames.push(move(new_frame))) {
+				auto* new_frame = frames.push();
+				if (!new_frame) {
 					return Status::NoMemory;
 				}
+
+				new_frame->start = frame.ptr;
+				new_frame->end = frame.ptr + len;
+				new_frame->ptr = frame.ptr;
+				new_frame->parent_scope = current_scope;
+				new_frame->need_result = false;
+				new_frame->is_method = false;
+				new_frame->type = Frame::Scope;
+
+				current_scope = node;
+				frame.ptr += len;
 			}
 
 			break;
@@ -3099,21 +3086,20 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			if (pred_val->get_unsafe<uint64_t>()) {
 				if (len) {
-					Frame new_frame {
-						.start = frame.ptr,
-						.end = frame.ptr + len,
-						.ptr = frame.ptr,
-						.parent_scope = nullptr,
-						.op_blocks {},
-						.need_result = false,
-						.is_method = false,
-						.type = Frame::If
-					};
-					frame.ptr += len;
-
-					if (!frames.push(move(new_frame))) {
+					auto* new_frame = frames.push();
+					if (!new_frame) {
 						return Status::NoMemory;
 					}
+
+					new_frame->start = frame.ptr;
+					new_frame->end = frame.ptr + len;
+					new_frame->ptr = frame.ptr;
+					new_frame->parent_scope = nullptr;
+					new_frame->need_result = false;
+					new_frame->is_method = false;
+					new_frame->type = Frame::If;
+
+					frame.ptr += len;
 				}
 			}
 			else {
@@ -3156,21 +3142,20 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			if (pred_val->get_unsafe<uint64_t>()) {
 				if (len) {
-					Frame new_frame {
-						.start = frame.ptr,
-						.end = frame.ptr + len,
-						.ptr = frame.ptr,
-						.parent_scope = nullptr,
-						.op_blocks {},
-						.need_result = false,
-						.is_method = false,
-						.type = Frame::While
-					};
-					frame.ptr = pkg_len.start - 1;
-
-					if (!frames.push(move(new_frame))) {
+					auto* new_frame = frames.push();
+					if (!new_frame) {
 						return Status::NoMemory;
 					}
+
+					new_frame->start = frame.ptr;
+					new_frame->end = frame.ptr + len;
+					new_frame->ptr = frame.ptr;
+					new_frame->parent_scope = nullptr;
+					new_frame->need_result = false;
+					new_frame->is_method = false;
+					new_frame->type = Frame::While;
+
+					frame.ptr = pkg_len.start - 1;
 				}
 			}
 			else {
@@ -3358,8 +3343,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			uint64_t index = index_value->get_unsafe<uint64_t>();
 
 			uint32_t byte_size = 0;
-			uint32_t byte_offset;
-			uint32_t total_bit_size;
+			uint32_t byte_offset = 0;
+			uint32_t total_bit_size = 0;
 			uint8_t bit_size = 0;
 			uint8_t bit_offset = 0;
 			switch (block.block->handler) {
@@ -3491,22 +3476,21 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
-				Frame new_frame {
-					.start = frame.ptr,
-					.end = frame.ptr + len,
-					.ptr = frame.ptr,
-					.parent_scope = current_scope,
-					.op_blocks {},
-					.need_result = false,
-					.is_method = false,
-					.type = Frame::Scope
-				};
-				current_scope = node;
-				frame.ptr += len;
-
-				if (!frames.push(move(new_frame))) {
+				auto* new_frame = frames.push();
+				if (!new_frame) {
 					return Status::NoMemory;
 				}
+
+				new_frame->start = frame.ptr;
+				new_frame->end = frame.ptr + len;
+				new_frame->ptr = frame.ptr;
+				new_frame->parent_scope = current_scope;
+				new_frame->need_result = false;
+				new_frame->is_method = false;
+				new_frame->type = Frame::Scope;
+
+				current_scope = node;
+				frame.ptr += len;
 			}
 
 			break;
@@ -3548,22 +3532,21 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
-				Frame new_frame {
-					.start = frame.ptr,
-					.end = frame.ptr + len,
-					.ptr = frame.ptr,
-					.parent_scope = current_scope,
-					.op_blocks {},
-					.need_result = false,
-					.is_method = false,
-					.type = Frame::Scope
-				};
-				current_scope = node;
-				frame.ptr += len;
-
-				if (!frames.push(move(new_frame))) {
+				auto* new_frame = frames.push();
+				if (!new_frame) {
 					return Status::NoMemory;
 				}
+
+				new_frame->start = frame.ptr;
+				new_frame->end = frame.ptr + len;
+				new_frame->ptr = frame.ptr;
+				new_frame->parent_scope = current_scope;
+				new_frame->need_result = false;
+				new_frame->is_method = false;
+				new_frame->type = Frame::Scope;
+
+				current_scope = node;
+				frame.ptr += len;
 			}
 
 			break;
@@ -3643,22 +3626,21 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
-				Frame new_frame {
-					.start = frame.ptr,
-					.end = frame.ptr + len,
-					.ptr = frame.ptr,
-					.parent_scope = current_scope,
-					.op_blocks {},
-					.need_result = false,
-					.is_method = false,
-					.type = Frame::Scope
-				};
-				current_scope = node;
-				frame.ptr += len;
-
-				if (!frames.push(move(new_frame))) {
+				auto* new_frame = frames.push();
+				if (!new_frame) {
 					return Status::NoMemory;
 				}
+
+				new_frame->start = frame.ptr;
+				new_frame->end = frame.ptr + len;
+				new_frame->ptr = frame.ptr;
+				new_frame->parent_scope = current_scope;
+				new_frame->need_result = false;
+				new_frame->is_method = false;
+				new_frame->type = Frame::Scope;
+
+				current_scope = node;
+				frame.ptr += len;
 			}
 
 			break;
@@ -3891,6 +3873,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 	return Status::Success;
 }
+#pragma GCC pop_options
 
 Status Interpreter::parse() {
 	while (true) {
@@ -3926,7 +3909,8 @@ Status Interpreter::parse() {
 			const OpBlock* block;
 			if (byte == 0x5B) {
 				CHECK_EOF;
-				block = &EXT_OPS[*frame.ptr++];
+				byte = *frame.ptr++;
+				block = &EXT_OPS[byte];
 			}
 			else if (is_name_char(byte)) {
 				auto is_package = frame.type == Frame::Package;
@@ -3940,7 +3924,7 @@ Status Interpreter::parse() {
 			}
 
 			if (block->handler == OpHandler::None) {
-				LOG << "qacpi internal error: unimplemented op" << byte << endlog;
+				LOG << "qacpi internal error: unimplemented op " << byte << endlog;
 				return Status::Unsupported;
 			}
 
@@ -4122,21 +4106,20 @@ Status Interpreter::parse() {
 						}
 					}
 
-					Frame new_frame {
-						.start = frame.ptr,
-						.end = frame.ptr + len,
-						.ptr = frame.ptr,
-						.parent_scope = current_scope,
-						.op_blocks {},
-						.need_result = true,
-						.is_method = false,
-						.type = Frame::Package
-					};
-					frame.ptr += len;
-
-					if (!frames.push(move(new_frame))) {
+					auto* new_frame = frames.push();
+					if (!new_frame) {
 						return Status::NoMemory;
 					}
+
+					new_frame->start = frame.ptr;
+					new_frame->end = frame.ptr + len;
+					new_frame->ptr = frame.ptr;
+					new_frame->parent_scope = current_scope;
+					new_frame->need_result = true;
+					new_frame->is_method = false;
+					new_frame->type = Frame::Package;
+
+					frame.ptr += len;
 
 					break;
 				}
@@ -4163,7 +4146,8 @@ Status Interpreter::parse() {
 					const OpBlock* new_block;
 					if (byte == 0x5B) {
 						CHECK_EOF;
-						new_block = &EXT_OPS[*frame.ptr++];
+						byte = *frame.ptr++;
+						new_block = &EXT_OPS[byte];
 					}
 					else if (is_name_char(byte)) {
 						if (auto status = handle_name(
@@ -4186,7 +4170,7 @@ Status Interpreter::parse() {
 					}
 
 					if (new_block->handler == OpHandler::None) {
-						LOG << "qacpi internal error: unimplemented op" << byte << endlog;
+						LOG << "qacpi internal error: unimplemented op " << byte << endlog;
 						return Status::Unsupported;
 					}
 

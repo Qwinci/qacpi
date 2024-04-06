@@ -100,6 +100,17 @@ namespace qacpi {
 		}
 
 		template<typename T> requires(IsAny<T, Types...>::value)
+		inline const T* get() const {
+			constexpr size_t ID = TypeIndex<T, Types...>::value;
+			if (id == ID) {
+				return reinterpret_cast<const T*>(&storage);
+			}
+			else {
+				return nullptr;
+			}
+		}
+
+		template<typename T> requires(IsAny<T, Types...>::value)
 		inline T& get_unsafe() & {
 			return *reinterpret_cast<T*>(&storage);
 		}

@@ -80,6 +80,31 @@ namespace qacpi {
 			return true;
 		}
 
+		[[nodiscard]] T* push() {
+			if (_size < N) {
+				return construct<T>(&data.small[_size++]);
+			}
+			else {
+				if (_size == cap) {
+					size_t new_cap = cap * 2;
+					auto new_ptr = static_cast<T*>(qacpi_os_malloc(new_cap * sizeof(T)));
+					if (!new_ptr) {
+						return nullptr;
+					}
+					for (size_t i = 0; i < _size - N; ++i) {
+						construct<T>(&new_ptr[i], move(ptr[i]));
+					}
+					if (ptr) {
+						qacpi_os_free(ptr, cap * sizeof(T));
+					}
+					ptr = new_ptr;
+					cap = new_cap;
+				}
+
+				return construct<T>(&ptr[_size++ - N]);
+			}
+		}
+
 		T pop() {
 			if (_size <= N) {
 				return move(data.small[--_size]);

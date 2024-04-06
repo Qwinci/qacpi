@@ -191,6 +191,6 @@ namespace qacpi {
 			Method, Mutex, OpRegion, PowerResource,
 			Processor, ThermalZone, BufferField,
 			Unresolved, Debug, Ref, NullTarget> data;
-		NamespaceNode* node {};
+		NamespaceNode* node;
 	};
 }
