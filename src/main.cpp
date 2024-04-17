@@ -5,6 +5,7 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <unordered_map>
 #include "qacpi/context.hpp"
 #include "qacpi/ns.hpp"
 #include "qacpi/utils.hpp"
@@ -98,12 +99,26 @@ void qacpi_os_trace(const char* str, size_t size) {
 	std::cerr << std::string_view {str, size} << '\n';
 }
 
+std::unordered_map<void*, size_t> ALLOCATIONS;
+
 void* qacpi_os_malloc(size_t size) {
-	return malloc(size);
+	auto ptr = malloc(size);
+	if (!ptr) {
+		return nullptr;
+	}
+	ALLOCATIONS[ptr] = size;
+	return ptr;
 }
 
-void qacpi_os_free(void* ptr, size_t) {
+void qacpi_os_free(void* ptr, size_t size) {
+	auto iter = ALLOCATIONS.find(ptr);
+	if (iter == ALLOCATIONS.end() || iter->second != size) {
+		std::cerr << "invalid free\n";
+		abort();
+	}
+
 	free(ptr);
+	ALLOCATIONS.erase(ptr);
 }
 
 void qacpi_os_stall(uint64_t us) {
@@ -233,9 +248,12 @@ int main() {
 		}
 	}
 
-	ctx.init_namespace();
+	status = ctx.init_namespace();
+	if (status != qacpi::Status::Success) {
+		abort();
+	}
 
-	// PTS (5)
+	std::cerr << "executing PTS(5)\n";
 	qacpi::ObjectRef arg;
 	arg->data = uint64_t {5};
 	auto res = qacpi::ObjectRef::empty();

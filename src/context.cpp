@@ -146,10 +146,14 @@ Status Context::evaluate(StringView name, ObjectRef& res, ObjectRef* args, int a
 
 	auto* node = interp->create_or_get_node(name, Interpreter::SearchFlags::Search);
 	if (!node) {
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
 		return Status::MethodNotFound;
 	}
 	if (!node->object) {
 		LOG << "qacpi internal error in Context::evaluate, node->object is null" << endlog;
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
 		return Status::InternalError;
 	}
 	if (node->object->get<Method>()) {
@@ -182,11 +186,15 @@ Status Context::evaluate(NamespaceNode* node, StringView name, ObjectRef& res, O
 
 	node = node->get_child(name);
 	if (!node) {
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
 		return Status::MethodNotFound;
 	}
 
 	if (!node->object) {
 		LOG << "qacpi internal error in Context::evaluate, node->object is null" << endlog;
+		interp->~Interpreter();
+		qacpi_os_free(mem, sizeof(Interpreter));
 		return Status::InternalError;
 	}
 	if (node->object->get<Method>()) {

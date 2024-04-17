@@ -2254,21 +2254,24 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
+				auto start = frame.ptr;
+				auto end = frame.ptr + len;
+				frame.ptr += len;
+
 				auto* new_frame = frames.push();
 				if (!new_frame) {
 					return Status::NoMemory;
 				}
 
-				new_frame->start = frame.ptr;
-				new_frame->end = frame.ptr + len;
-				new_frame->ptr = frame.ptr;
+				new_frame->start = start;
+				new_frame->end = end;
+				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
 
 				current_scope = node;
-				frame.ptr += len;
 			}
 
 			break;
@@ -3086,20 +3089,22 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			if (pred_val->get_unsafe<uint64_t>()) {
 				if (len) {
+					auto start = frame.ptr;
+					auto end = frame.ptr + len;
+					frame.ptr += len;
+
 					auto* new_frame = frames.push();
 					if (!new_frame) {
 						return Status::NoMemory;
 					}
 
-					new_frame->start = frame.ptr;
-					new_frame->end = frame.ptr + len;
-					new_frame->ptr = frame.ptr;
+					new_frame->start = start;
+					new_frame->end = end;
+					new_frame->ptr = start;
 					new_frame->parent_scope = nullptr;
 					new_frame->need_result = false;
 					new_frame->is_method = false;
 					new_frame->type = Frame::If;
-
-					frame.ptr += len;
 				}
 			}
 			else {
@@ -3142,20 +3147,22 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			if (pred_val->get_unsafe<uint64_t>()) {
 				if (len) {
+					auto start = frame.ptr;
+					auto end = frame.ptr + len;
+					frame.ptr = pkg_len.start - 1;
+
 					auto* new_frame = frames.push();
 					if (!new_frame) {
 						return Status::NoMemory;
 					}
 
-					new_frame->start = frame.ptr;
-					new_frame->end = frame.ptr + len;
-					new_frame->ptr = frame.ptr;
+					new_frame->start = start;
+					new_frame->end = end;
+					new_frame->ptr = start;
 					new_frame->parent_scope = nullptr;
 					new_frame->need_result = false;
 					new_frame->is_method = false;
 					new_frame->type = Frame::While;
-
-					frame.ptr = pkg_len.start - 1;
 				}
 			}
 			else {
@@ -3296,7 +3303,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				.size = len,
 				.pci_address {},
 				.space = reg_space,
-				.attached = false
+				.attached = false,
+				.regged = false
 			};
 
 			obj->node = node;
@@ -3393,7 +3401,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 			node->parent = current_scope;
 
-			if (bit_offset) {
+			if (bit_offset + total_bit_size > (bit_offset & ~7) + byte_size * 8) {
 				++byte_size;
 			}
 
@@ -3476,21 +3484,24 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
+				auto start = frame.ptr;
+				auto end = frame.ptr + len;
+				frame.ptr += len;
+
 				auto* new_frame = frames.push();
 				if (!new_frame) {
 					return Status::NoMemory;
 				}
 
-				new_frame->start = frame.ptr;
-				new_frame->end = frame.ptr + len;
-				new_frame->ptr = frame.ptr;
+				new_frame->start = start;
+				new_frame->end = end;
+				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
 
 				current_scope = node;
-				frame.ptr += len;
 			}
 
 			break;
@@ -3532,21 +3543,24 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
+				auto start = frame.ptr;
+				auto end = frame.ptr + len;
+				frame.ptr += len;
+
 				auto* new_frame = frames.push();
 				if (!new_frame) {
 					return Status::NoMemory;
 				}
 
-				new_frame->start = frame.ptr;
-				new_frame->end = frame.ptr + len;
-				new_frame->ptr = frame.ptr;
+				new_frame->start = start;
+				new_frame->end = end;
+				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
 
 				current_scope = node;
-				frame.ptr += len;
 			}
 
 			break;
@@ -3626,21 +3640,24 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (len) {
+				auto start = frame.ptr;
+				auto end = frame.ptr + len;
+				frame.ptr += len;
+
 				auto* new_frame = frames.push();
 				if (!new_frame) {
 					return Status::NoMemory;
 				}
 
-				new_frame->start = frame.ptr;
-				new_frame->end = frame.ptr + len;
-				new_frame->ptr = frame.ptr;
+				new_frame->start = start;
+				new_frame->end = end;
+				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
 
 				current_scope = node;
-				frame.ptr += len;
 			}
 
 			break;
@@ -4106,20 +4123,22 @@ Status Interpreter::parse() {
 						}
 					}
 
+					auto start = frame.ptr;
+					auto end = frame.ptr + len;
+					frame.ptr += len;
+
 					auto* new_frame = frames.push();
 					if (!new_frame) {
 						return Status::NoMemory;
 					}
 
-					new_frame->start = frame.ptr;
-					new_frame->end = frame.ptr + len;
-					new_frame->ptr = frame.ptr;
+					new_frame->start = start;
+					new_frame->end = end;
+					new_frame->ptr = start;
 					new_frame->parent_scope = current_scope;
 					new_frame->need_result = true;
 					new_frame->is_method = false;
 					new_frame->type = Frame::Package;
-
-					frame.ptr += len;
 
 					break;
 				}

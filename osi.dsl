@@ -38,6 +38,7 @@ DefinitionBlock ("osi.dsl", "DSDT", 2, "OEM", "MACHINE", 2) {
 		If (Arg0 == "Windows 2017.2") {
 			Return (Ones)
 		}
+		Debug = "-> Reporting as unsupported"
 		Return (Zero)
 	}
 }
