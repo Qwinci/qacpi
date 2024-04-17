@@ -86,10 +86,6 @@ namespace qacpi {
 		Unresolved
 	};
 
-	struct Ref;
-	struct Package;
-	struct Field;
-
 	struct PowerResource {
 		uint16_t resource_order;
 		uint8_t system_level;
@@ -145,7 +141,15 @@ namespace qacpi {
 	};
 
 	struct Field {
-		ObjectRef owner;
+		enum {
+			Normal,
+			Index,
+			Bank
+		} type;
+
+		ObjectRef owner_index;
+		ObjectRef data_bank;
+		uint64_t bank_value {};
 		ObjectRef connection;
 		uint32_t byte_offset;
 		uint32_t byte_size;
@@ -191,6 +195,6 @@ namespace qacpi {
 			Method, Mutex, OpRegion, PowerResource,
 			Processor, ThermalZone, BufferField,
 			Unresolved, Debug, Ref, NullTarget> data;
-		NamespaceNode* node;
+		NamespaceNode* node {};
 	};
 }

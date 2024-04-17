@@ -487,6 +487,21 @@ namespace qacpi {
 			Op::NameString,
 			Op::CallHandler
 		}, OpHandler::ThermalZone};
+		res[IndexFieldOp] = {5, {
+			Op::PkgLength,
+			Op::NameString,
+			Op::NameString,
+			Op::Byte,
+			Op::CallHandler
+		}, OpHandler::IndexField};
+		res[BankFieldOp] = {6, {
+			Op::PkgLength,
+			Op::NameString,
+			Op::NameString,
+			Op::TermArg,
+			Op::Byte,
+			Op::CallHandler
+		}, OpHandler::BankField};
 		res[DataRegionOp] = {5, {
 			Op::NameString,
 			Op::TermArg,

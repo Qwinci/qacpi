@@ -104,7 +104,9 @@ namespace qacpi {
 		ObjectType,
 		ToDecimalString,
 		ToHexString,
-		DataRegion
+		DataRegion,
+		IndexField,
+		BankField
 	};
 
 	struct OpBlock {

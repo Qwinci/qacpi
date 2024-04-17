@@ -86,7 +86,24 @@ namespace qacpi {
 		Status store_to_target(ObjectRef target, ObjectRef value);
 		static Status parse_name_str(Frame& frame, String& res);
 
-		Status parse_field_list(Frame& frame, const ObjectRef& region, uint32_t len, uint8_t flags);
+		struct NormalFieldInfo {
+			ObjectRef owner;
+		};
+		struct IndexFieldInfo {
+			ObjectRef index;
+			ObjectRef data;
+		};
+		struct BankFieldInfo {
+			ObjectRef owner;
+			ObjectRef bank;
+			uint64_t selection;
+		};
+
+		Status parse_field_list(
+			Frame& frame,
+			Variant<NormalFieldInfo, IndexFieldInfo, BankFieldInfo> owner,
+			uint32_t len,
+			uint8_t flags);
 
 		Status handle_op(Frame& frame, const OpBlockCtx& block, bool need_result);
 		Status parse();

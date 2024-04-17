@@ -37,7 +37,7 @@ foreach(TEST IN LISTS TESTS)
 	get_filename_component(OUTPUT_NAME "${TEST}" NAME_WE)
 	add_custom_command(OUTPUT "tests/${OUTPUT_NAME}.aml"
 		COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/iasl_helper.py"
-			iasl -oa -vw 6074
+			iasl -oa -vw 6074 -vw 6141
 			-p "${CMAKE_CURRENT_BINARY_DIR}/tests/${OUTPUT_NAME}" "${CMAKE_CURRENT_SOURCE_DIR}/${TEST}"
 		DEPENDS "${TEST}"
 	)

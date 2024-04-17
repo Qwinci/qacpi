@@ -460,8 +460,13 @@ ObjectRef Interpreter::pop_and_unwrap_obj() {
 }
 
 Status Interpreter::read_field(Field* field, uint64_t& res) {
-	auto& region = field->owner->get_unsafe<OpRegion>();
-	auto& node = field->owner->node;
+	if (field->type == Field::Index) {
+		LOG << "qacpi error: IndexField is not supported in read_field" << endlog;
+		return Status::Unsupported;
+	}
+
+	auto& region = field->owner_index->get_unsafe<OpRegion>();
+	auto& node = field->owner_index->node;
 	if (field->byte_offset + field->byte_size > region.size) {
 		return Status::InvalidAml;
 	}
@@ -469,6 +474,10 @@ Status Interpreter::read_field(Field* field, uint64_t& res) {
 	if (field->byte_size > 8) {
 		LOG << "qacpi error: field is larger than 8 bytes" << endlog;
 		return Status::Unsupported;
+	}
+
+	if (field->type == Field::Bank) {
+		write_field(&field->data_bank->get_unsafe<Field>(), field->bank_value);
 	}
 
 	uint64_t value = 0;
@@ -570,8 +579,13 @@ Status Interpreter::read_field(Field* field, uint64_t& res) {
 }
 
 Status Interpreter::write_field(Field* field, uint64_t value) {
-	auto& region = field->owner->get_unsafe<OpRegion>();
-	auto& node = field->owner->node;
+	if (field->type == Field::Index) {
+		LOG << "qacpi error: IndexField is not supported in write_field" << endlog;
+		return Status::Unsupported;
+	}
+
+	auto& region = field->owner_index->get_unsafe<OpRegion>();
+	auto& node = field->owner_index->node;
 	if (field->byte_offset + field->byte_size > region.size) {
 		return Status::InvalidAml;
 	}
@@ -579,6 +593,10 @@ Status Interpreter::write_field(Field* field, uint64_t value) {
 	if (field->byte_size > 8) {
 		LOG << "qacpi error: field is larger than 8 bytes" << endlog;
 		return Status::Unsupported;
+	}
+
+	if (field->type == Field::Bank) {
+		write_field(&field->data_bank->get_unsafe<Field>(), field->bank_value);
 	}
 
 	uint64_t old = 0;
@@ -1258,7 +1276,11 @@ Status Interpreter::parse_pkg_len(Interpreter::Frame& frame, PkgLength& res) {
 	return Status::Success;
 }
 
-Status Interpreter::parse_field_list(Frame& frame, const ObjectRef& region, uint32_t len, uint8_t flags) {
+Status Interpreter::parse_field_list(
+	Frame& frame,
+	Variant<NormalFieldInfo, IndexFieldInfo, BankFieldInfo> owner,
+	uint32_t len,
+	uint8_t flags) {
 	CHECK_EOF_NUM(len);
 
 	uint8_t access_type = flags & 0xF;
@@ -1376,19 +1398,61 @@ Status Interpreter::parse_field_list(Frame& frame, const ObjectRef& region, uint
 				if (!obj) {
 					return Status::NoMemory;
 				}
-				auto copy = region;
-				obj->data = Field {
-					.owner {move(copy)},
-					.connection {ObjectRef::empty()},
-					.byte_offset = byte_offset,
-					.byte_size = byte_size,
-					.total_bit_size = pkg_len.len,
-					.bit_offset = bit_offset,
-					.bit_size = bit_size,
-					.access_size = access_size,
-					.update = update,
-					.lock = lock
-				};
+				if (auto normal = owner.get<NormalFieldInfo>()) {
+					auto copy = normal->owner;
+					obj->data = Field {
+						.type = Field::Normal,
+						.owner_index {move(copy)},
+						.data_bank {ObjectRef::empty()},
+						.connection {ObjectRef::empty()},
+						.byte_offset = byte_offset,
+						.byte_size = byte_size,
+						.total_bit_size = pkg_len.len,
+						.bit_offset = bit_offset,
+						.bit_size = bit_size,
+						.access_size = access_size,
+						.update = update,
+						.lock = lock
+					};
+				}
+				else if (auto index = owner.get<IndexFieldInfo>()) {
+					auto index_copy = index->index;
+					auto data_copy = index->data;
+					obj->data = Field {
+						.type = Field::Index,
+						.owner_index {move(index_copy)},
+						.data_bank {move(data_copy)},
+						.connection {ObjectRef::empty()},
+						.byte_offset = byte_offset,
+						.byte_size = byte_size,
+						.total_bit_size = pkg_len.len,
+						.bit_offset = bit_offset,
+						.bit_size = bit_size,
+						.access_size = access_size,
+						.update = update,
+						.lock = lock
+					};
+				}
+				else if (auto bank = owner.get<BankFieldInfo>()) {
+					auto owner_copy = bank->owner;
+					auto bank_copy = bank->bank;
+					obj->data = Field {
+						.type = Field::Bank,
+						.owner_index {move(owner_copy)},
+						.data_bank {move(bank_copy)},
+						.bank_value = bank->selection,
+						.connection {ObjectRef::empty()},
+						.byte_offset = byte_offset,
+						.byte_size = byte_size,
+						.total_bit_size = pkg_len.len,
+						.bit_offset = bit_offset,
+						.bit_size = bit_size,
+						.access_size = access_size,
+						.update = update,
+						.lock = lock
+					};
+				}
+
 				obj->node = node;
 				node->object = move(obj);
 			}
@@ -1400,8 +1464,6 @@ Status Interpreter::parse_field_list(Frame& frame, const ObjectRef& region, uint
 	return Status::Success;
 }
 
-#pragma GCC push_options
-#pragma GCC optimize ("O2")
 Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block, bool need_result) {
 	switch (block.block->handler) {
 		case OpHandler::None:
@@ -3438,7 +3500,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto region = node->object;
 			if (region->get<OpRegion>()) {
-				if (auto status = parse_field_list(frame, region, len, flags); status != Status::Success) {
+				if (auto status = parse_field_list(frame, NormalFieldInfo {region}, len, flags);
+					status != Status::Success) {
 					return status;
 				}
 			}
@@ -3886,11 +3949,102 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			LOG << "qacpi warning: Ignoring DataRegion" << endlog;
 			break;
 		}
+		case OpHandler::IndexField:
+		{
+			auto flags = objects.pop().get_unsafe<PkgLength>().len;
+			auto data_name = objects.pop().get_unsafe<String>();
+			auto index_name = objects.pop().get_unsafe<String>();
+			auto pkg_len = objects.pop().get_unsafe<PkgLength>();
+			uint32_t len = pkg_len.len - (frame.ptr - pkg_len.start);
+
+			auto* index_node = create_or_get_node(index_name, SearchFlags::Search);
+			if (!index_node || !index_node->object) {
+				LOG << "qacpi error: Node " << index_name << " doesn't exist (needed as IndexField Index)" << endlog;
+				return Status::InvalidAml;
+			}
+			if (!index_node->object->get<Field>()) {
+				LOG << "qacpi error: Node " << index_name << " is not a Field" << endlog;
+				return Status::InvalidAml;
+			}
+
+			auto* data_node = create_or_get_node(data_name, SearchFlags::Search);
+			if (!data_node || !data_node->object) {
+				LOG << "qacpi error: Node " << data_name << " doesn't exist (needed as IndexField Data)" << endlog;
+				return Status::InvalidAml;
+			}
+			if (!data_node->object->get<Field>()) {
+				LOG << "qacpi error: Node " << data_name << " is not a Field" << endlog;
+				return Status::InvalidAml;
+			}
+
+			auto index_field = index_node->object;
+			auto data_field = data_node->object;
+			if (auto status = parse_field_list(
+				frame,
+				IndexFieldInfo {.index {move(index_field)}, .data {move(data_field)}},
+				len,
+				flags); status != Status::Success) {
+				return status;
+			}
+
+			break;
+		}
+		case OpHandler::BankField:
+		{
+			auto flags = objects.pop().get_unsafe<PkgLength>().len;
+			auto selection = objects.pop().get_unsafe<ObjectRef>();
+			auto bank_name = objects.pop().get_unsafe<String>();
+			auto reg_name = objects.pop().get_unsafe<String>();
+			auto pkg_len = objects.pop().get_unsafe<PkgLength>();
+			uint32_t len = pkg_len.len - (frame.ptr - pkg_len.start);
+
+			auto* region_node = create_or_get_node(reg_name, SearchFlags::Search);
+			if (!region_node || !region_node->object) {
+				LOG << "qacpi error: Node " << reg_name << " doesn't exist (needed as BankField Region)" << endlog;
+				return Status::InvalidAml;
+			}
+
+			auto* bank_node = create_or_get_node(bank_name, SearchFlags::Search);
+			if (!bank_node || !bank_node->object) {
+				LOG << "qacpi error: Node " << bank_name << " doesn't exist (needed as BankField Bank)" << endlog;
+				return Status::InvalidAml;
+			}
+			if (!bank_node->object->get<Field>()) {
+				LOG << "qacpi error: Node " << bank_name << " is not a Field" << endlog;
+				return Status::InvalidAml;
+			}
+
+			auto selection_res = ObjectRef::empty();
+			if (auto status = try_convert(selection, selection_res, {ObjectType::Integer});
+				status != Status::Success) {
+				return status;
+			}
+
+			auto region = region_node->object;
+			auto bank = bank_node->object;
+			if (region->get<OpRegion>()) {
+				if (auto status = parse_field_list(
+						frame,
+						BankFieldInfo {
+							.owner {move(region)},
+							.bank {move(bank)},
+							.selection = selection_res->get_unsafe<uint64_t>()
+					    },
+						len,
+						flags); status != Status::Success) {
+					return status;
+				}
+			}
+			else {
+				LOG << "qacpi error: node " << reg_name << " is not an Operation Region" << endlog;
+				return Status::InvalidAml;
+			}
+			break;
+		}
 	}
 
 	return Status::Success;
 }
-#pragma GCC pop_options
 
 Status Interpreter::parse() {
 	while (true) {
