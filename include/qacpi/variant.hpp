@@ -116,6 +116,11 @@ namespace qacpi {
 		}
 
 		template<typename T> requires(IsAny<T, Types...>::value)
+		inline const T& get_unsafe() const & {
+			return *reinterpret_cast<const T*>(&storage);
+		}
+
+		template<typename T> requires(IsAny<T, Types...>::value)
 		inline T get_unsafe() && {
 			return move(*reinterpret_cast<T*>(&storage));
 		}

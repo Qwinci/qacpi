@@ -73,8 +73,8 @@ namespace qacpi {
 		Status handle_name(Frame& frame, bool need_result, bool super_name);
 		Status try_convert(ObjectRef& object, ObjectRef& res, const ObjectType* types, int type_count);
 
-		Status read_field(Field* field, uint64_t& res);
-		Status write_field(Field* field, uint64_t value);
+		Status read_field(Field* field, ObjectRef& dest);
+		Status write_field(Field* field, const ObjectRef& value);
 
 		template<int N>
 		Status try_convert(ObjectRef& object, ObjectRef& res, const ObjectType (&types)[N]) {

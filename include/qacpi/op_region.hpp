@@ -22,6 +22,8 @@ namespace qacpi {
 	struct NamespaceNode;
 
 	struct OpRegion {
+		Context& ctx;
+		NamespaceNode* node;
 		uint64_t offset;
 		uint64_t size;
 		PciAddress pci_address;
@@ -29,6 +31,8 @@ namespace qacpi {
 		bool attached;
 		bool regged;
 
-		Status run_reg(Context* ctx, NamespaceNode* node, bool global);
+		Status read(uint64_t offset, uint8_t size, uint64_t& res);
+		Status write(uint64_t offset, uint8_t size, uint64_t value);
+		Status run_reg(bool global);
 	};
 }

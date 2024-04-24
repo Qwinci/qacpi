@@ -234,7 +234,7 @@ Status Context::init_namespace() {
 	auto* reg_region = regions_to_reg;
 	while (reg_region) {
 		auto& region = reg_region->object->get_unsafe<OpRegion>();
-		region.run_reg(this, reg_region, true);
+		region.run_reg(true);
 		reg_region = reg_region->public_link;
 		regions_to_reg = reg_region;
 	}

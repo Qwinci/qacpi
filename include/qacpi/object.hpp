@@ -151,11 +151,8 @@ namespace qacpi {
 		ObjectRef data_bank;
 		uint64_t bank_value {};
 		ObjectRef connection;
-		uint32_t byte_offset;
-		uint32_t byte_size;
-		uint32_t total_bit_size;
-		uint8_t bit_offset;
-		uint8_t bit_size;
+		uint32_t bit_size;
+		uint32_t bit_offset;
 		uint8_t access_size {};
 		FieldUpdate update {};
 		bool lock {};
@@ -182,6 +179,11 @@ namespace qacpi {
 
 		template<typename T>
 		inline T& get_unsafe() {
+			return data.get_unsafe<T>();
+		}
+
+		template<typename T>
+		inline const T& get_unsafe() const {
 			return data.get_unsafe<T>();
 		}
 
