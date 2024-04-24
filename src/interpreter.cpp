@@ -3730,6 +3730,146 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 			break;
 		}
+		case OpHandler::Match:
+		{
+			auto orig_start_index_obj = pop_and_unwrap_obj();
+			auto start_index_obj = ObjectRef::empty();
+			if (auto status = try_convert(
+				orig_start_index_obj,
+				start_index_obj, {ObjectType::Integer});
+				status != Status::Success) {
+				return status;
+			}
+			auto start_index = start_index_obj->get_unsafe<uint64_t>();
+
+			auto orig_operand2 = pop_and_unwrap_obj();
+			auto op2 = objects.pop().get_unsafe<PkgLength>().len;
+			auto orig_operand1 = pop_and_unwrap_obj();
+			auto op1 = objects.pop().get_unsafe<PkgLength>().len;
+			auto pkg_obj = pop_and_unwrap_obj();
+			auto pkg = pkg_obj->get<Package>();
+			if (!pkg) {
+				return Status::InvalidAml;
+			}
+
+			if (start_index >= pkg->data->element_count) {
+				return Status::InvalidAml;
+			}
+
+			if (!need_result) {
+				break;
+			}
+
+			auto operand1 = ObjectRef::empty();
+			if (auto status = try_convert(
+				orig_operand1,
+				operand1,
+				{ObjectType::Integer, ObjectType::String, ObjectType::Buffer});
+				status != Status::Success) {
+				return status;
+			}
+			auto operand2 = ObjectRef::empty();
+			if (auto status = try_convert(
+				orig_operand2,
+				operand2,
+				{ObjectType::Integer, ObjectType::String, ObjectType::Buffer});
+				status != Status::Success) {
+				return status;
+			}
+
+			if (!operand1->get<uint64_t>() ||
+			    !operand2->get<uint64_t>()) {
+				LOG << "qacpi error: unsupported operand type for Match" << endlog;
+				return Status::Unsupported;
+			}
+
+			ObjectRef res_obj;
+			if (!res_obj) {
+				return Status::NoMemory;
+			}
+
+			uint64_t ret_index = 0xFFFFFFFFFFFFFFFF;
+
+			for (uint32_t i = start_index; i < pkg->data->element_count; ++i) {
+				auto& element = pkg->data->elements[i];
+				auto converted = ObjectRef::empty();
+				auto status = try_convert(
+					element,
+					converted,
+					{ObjectType::Integer});
+				if (status == Status::InvalidArgs) {
+					continue;
+				}
+				else if (status != Status::Success) {
+					return status;
+				}
+
+				bool match1;
+				switch (op1) {
+					case 0:
+						match1 = true;
+						break;
+					case 1:
+						match1 = converted->get_unsafe<uint64_t>() == operand1->get_unsafe<uint64_t>();
+						break;
+					case 2:
+						match1 = converted->get_unsafe<uint64_t>() <= operand1->get_unsafe<uint64_t>();
+						break;
+					case 3:
+						match1 = converted->get_unsafe<uint64_t>() < operand1->get_unsafe<uint64_t>();
+						break;
+					case 4:
+						match1 = converted->get_unsafe<uint64_t>() >= operand1->get_unsafe<uint64_t>();
+						break;
+					case 5:
+						match1 = converted->get_unsafe<uint64_t>() > operand1->get_unsafe<uint64_t>();
+						break;
+					default:
+						return Status::InvalidAml;
+				}
+
+				if (!match1) {
+					continue;
+				}
+
+				bool match2;
+				switch (op2) {
+					case 0:
+						match2 = true;
+						break;
+					case 1:
+						match2 = converted->get_unsafe<uint64_t>() == operand2->get_unsafe<uint64_t>();
+						break;
+					case 2:
+						match2 = converted->get_unsafe<uint64_t>() <= operand2->get_unsafe<uint64_t>();
+						break;
+					case 3:
+						match2 = converted->get_unsafe<uint64_t>() < operand2->get_unsafe<uint64_t>();
+						break;
+					case 4:
+						match2 = converted->get_unsafe<uint64_t>() >= operand2->get_unsafe<uint64_t>();
+						break;
+					case 5:
+						match2 = converted->get_unsafe<uint64_t>() > operand2->get_unsafe<uint64_t>();
+						break;
+					default:
+						return Status::InvalidAml;
+				}
+
+				if (match2) {
+					ret_index = i;
+					break;
+				}
+			}
+
+			res_obj->data = ret_index;
+
+			if (!objects.push(move(res_obj))) {
+				return Status::NoMemory;
+			}
+
+			break;
+		}
 	}
 
 	return Status::Success;

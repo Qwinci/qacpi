@@ -106,7 +106,8 @@ namespace qacpi {
 		ToHexString,
 		DataRegion,
 		IndexField,
-		BankField
+		BankField,
+		Match
 	};
 
 	struct OpBlock {

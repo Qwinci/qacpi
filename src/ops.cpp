@@ -245,6 +245,15 @@ namespace qacpi {
 			Op::SuperName,
 			Op::CallHandler
 		}, OpHandler::Index};
+		res[MatchOp] = {7, {
+			Op::TermArg,
+			Op::Byte,
+			Op::TermArg,
+			Op::Byte,
+			Op::TermArg,
+			Op::TermArg,
+			Op::CallHandler
+		}, OpHandler::Match};
 		res[CreateDWordFieldOp] = {4, {
 			Op::TermArg,
 			Op::TermArg,
