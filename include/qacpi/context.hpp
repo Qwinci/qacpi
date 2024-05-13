@@ -10,7 +10,7 @@ namespace qacpi {
 		constexpr StringView() = default;
 		constexpr StringView(const char* str, size_t size) : ptr {str}, size {size} {}
 		constexpr StringView(const String& str) : ptr {str.data()}, size {str.size()} {} // NOLINT(*-explicit-constructor)
-		consteval StringView(const char* str) : ptr {str}, size {const_strlen(str)} {} // NOLINT(*-explicit-constructor)
+		constexpr StringView(const char* str) : ptr {str}, size {const_strlen(str)} {} // NOLINT(*-explicit-constructor)
 
 		const char* ptr {};
 		size_t size {};
@@ -47,13 +47,14 @@ namespace qacpi {
 		NamespaceNode* root {};
 		NamespaceNode* all_nodes {};
 		Mutex* gl {};
-		ObjectRef global_locals[7] {
+		ObjectRef global_locals[8] {
 			ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
 			ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
-			ObjectRef::empty()
+			ObjectRef::empty(), ObjectRef::empty()
 		};
 		const RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
 		NamespaceNode* regions_to_reg {};
+		uint64_t timeout_100ns = 10 * 1000 * 1000 * 2;
 		uint8_t revision;
 	};
 }

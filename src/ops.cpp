@@ -465,10 +465,12 @@ namespace qacpi {
 			Op::TermArg,
 			Op::CallHandler
 		}, OpHandler::OpRegion};
-		res[FieldOp] = {4, {
+		res[FieldOp] = {6, {
 			Op::PkgLength,
 			Op::NameString,
 			Op::Byte,
+			Op::StartFieldList,
+			Op::FieldList,
 			Op::CallHandler
 		}, OpHandler::Field};
 		res[DeviceOp] = {3, {
@@ -496,19 +498,23 @@ namespace qacpi {
 			Op::NameString,
 			Op::CallHandler
 		}, OpHandler::ThermalZone};
-		res[IndexFieldOp] = {5, {
+		res[IndexFieldOp] = {7, {
 			Op::PkgLength,
 			Op::NameString,
 			Op::NameString,
 			Op::Byte,
+			Op::StartFieldList,
+			Op::FieldList,
 			Op::CallHandler
 		}, OpHandler::IndexField};
-		res[BankFieldOp] = {6, {
+		res[BankFieldOp] = {8, {
 			Op::PkgLength,
 			Op::NameString,
 			Op::NameString,
 			Op::TermArg,
 			Op::Byte,
+			Op::StartFieldList,
+			Op::FieldList,
 			Op::CallHandler
 		}, OpHandler::BankField};
 		res[DataRegionOp] = {5, {

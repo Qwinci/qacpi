@@ -7,6 +7,40 @@ namespace qacpi {
 	class SmallVec {
 	public:
 		constexpr SmallVec() = default;
+		constexpr SmallVec(const SmallVec&) = delete;
+		constexpr SmallVec& operator=(const SmallVec&) = delete;
+		constexpr SmallVec& operator=(SmallVec&&) = delete;
+
+		constexpr SmallVec(SmallVec&& other) {
+			_size = other._size;
+			cap = other.cap;
+			if (cap == N) {
+				for (size_t i = 0; i < _size; ++i) {
+					construct<T>(&data.small[i], move(other.data.small[i]));
+					other.data.small[i].~T();
+				}
+				other._size = 0;
+			}
+			else {
+				ptr = other.ptr;
+				other._size = 0;
+				other.cap = N;
+				other.ptr = nullptr;
+
+				if (_size > N) {
+					for (size_t i = 0; i < N; ++i) {
+						construct<T>(&data.small[i], move(other.data.small[i]));
+						other.data.small[i].~T();
+					}
+				}
+				else {
+					for (size_t i = 0; i < _size; ++i) {
+						construct<T>(&data.small[i], move(other.data.small[i]));
+						other.data.small[i].~T();
+					}
+				}
+			}
+		}
 
 		~SmallVec() {
 			if (_size <= N) {

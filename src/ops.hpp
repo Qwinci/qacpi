@@ -15,6 +15,8 @@ namespace qacpi {
 		MethodArgs,
 		PkgElements,
 		VarPkgElements,
+		StartFieldList,
+		FieldList,
 		CallHandler
 	};
 
@@ -112,7 +114,7 @@ namespace qacpi {
 
 	struct OpBlock {
 		uint8_t op_count;
-		Op ops[7];
+		Op ops[8];
 		OpHandler handler;
 	};
 

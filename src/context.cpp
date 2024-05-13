@@ -109,6 +109,15 @@ Status Context::init() {
 		return status;
 	}
 
+	ObjectRef rev_obj;
+	if (!rev_obj) {
+		return Status::NoMemory;
+	}
+	rev_obj->data = uint64_t {2};
+	if (auto status = create_predefined_node("_REV", move(rev_obj)); status != Status::Success) {
+		return status;
+	}
+
 	return Status::Success;
 }
 

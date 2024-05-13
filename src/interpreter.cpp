@@ -21,6 +21,15 @@ Status Interpreter::execute(const uint8_t* aml, uint32_t size) {
 	return parse();
 }
 
+static constexpr OpBlock TERM_ARG_BLOCK {
+	.op_count = 2,
+	.ops {
+		Op::TermArg,
+		Op::CallHandler
+	},
+	.handler = OpHandler::None
+};
+
 #define CHECK_EOF if (frame.ptr == frame.end) return Status::UnexpectedEof
 #define CHECK_EOF_NUM(num) if (frame.ptr + (num) > frame.end) return Status::UnexpectedEof
 
@@ -980,172 +989,175 @@ Status Interpreter::parse_pkg_len(Interpreter::Frame& frame, PkgLength& res) {
 	return Status::Success;
 }
 
-Status Interpreter::parse_field_list(
-	Frame& frame,
-	Variant<NormalFieldInfo, IndexFieldInfo, BankFieldInfo> owner,
-	uint32_t len,
-	uint8_t flags) {
-	CHECK_EOF_NUM(len);
+Status Interpreter::parse_field(FieldList& list, Frame& frame) {
+	uint8_t access_type = list.flags & 0xF;
+	bool lock = list.flags >> 4 & 1;
+	auto update = static_cast<FieldUpdate>(list.flags >> 5 & 0b11);
 
-	uint8_t access_type = flags & 0xF;
-	bool lock = flags >> 4 & 1;
-	auto update = static_cast<FieldUpdate>(flags >> 5 & 0b11);
-
-	uint32_t offset = 0;
-
-	auto end = frame.ptr + len;
-	while (frame.ptr < end) {
-		auto byte = *frame.ptr;
-		// ReservedField := 0x0 PkgLength
-		if (byte == 0x0) {
-			++frame.ptr;
-			PkgLength pkg_len {};
-			if (auto status = parse_pkg_len(frame, pkg_len); status != Status::Success) {
-				return status;
-			}
-			offset += pkg_len.len;
+	CHECK_EOF;
+	auto byte = *frame.ptr;
+	// ReservedField := 0x0 PkgLength
+	if (byte == 0x0) {
+		++frame.ptr;
+		PkgLength pkg_len {};
+		if (auto status = parse_pkg_len(frame, pkg_len); status != Status::Success) {
+			return status;
 		}
-		// AccessField := 0x1 AccessType AccessAttrib
-		// ExtendedAccessField := 0x3 AccessType AccessAttrib AccessLength
-		else if (byte == 0x1 || byte == 0x3) {
-			++frame.ptr;
+		list.offset += pkg_len.len;
+	}
+	// AccessField := 0x1 AccessType AccessAttrib
+	// ExtendedAccessField := 0x3 AccessType AccessAttrib AccessLength
+	else if (byte == 0x1 || byte == 0x3) {
+		++frame.ptr;
+		CHECK_EOF;
+		auto access_type_byte = *frame.ptr++;
+		access_type = access_type_byte & 0xF;
+
+		CHECK_EOF;
+		// access_attrib
+		++frame.ptr;
+
+		// access_length
+		if (byte == 0x3) {
 			CHECK_EOF;
-			auto access_type_byte = *frame.ptr++;
-			access_type = access_type_byte & 0xF;
-			CHECK_EOF;
-			// access_attrib
+
 			++frame.ptr;
-			// access_length
-			if (byte == 0x3) {
-				++frame.ptr;
-			}
 		}
-		// ConnectField := <0x2 NameString> | <0x2 BufferData>
-		else if (byte == 0x2) {
-			++frame.ptr;
-			CHECK_EOF_NUM(3);
-			if (is_name_char(*frame.ptr)) {
-				String str;
-				if (auto status = parse_name_str(frame, str); status != Status::Success) {
-					return status;
-				}
-			}
-			else {
-				// Serial Bus Type
-				++frame.ptr;
-				// Length
-				uint16_t desc_len;
-				memcpy(&desc_len, frame.ptr, 2);
-				frame.ptr += 2;
-				CHECK_EOF_NUM(desc_len);
-				frame.ptr += desc_len;
-			}
-		}
-		else {
-			CHECK_EOF_NUM(4);
-			auto* name = reinterpret_cast<const char*>(frame.ptr);
-			frame.ptr += 4;
-			PkgLength pkg_len {};
-			if (auto status = parse_pkg_len(frame, pkg_len); status != Status::Success) {
+	}
+	// ConnectField := <0x2 NameString> | <0x2 BufferData>
+	else if (byte == 0x2) {
+		++frame.ptr;
+		CHECK_EOF;
+
+		if (is_name_char(*frame.ptr)) {
+			String str;
+			if (auto status = parse_name_str(frame, str); status != Status::Success) {
 				return status;
 			}
 
-			uint8_t access_size = 0;
-			switch (access_type) {
-				// AnyAcc
-				case 0:
-				// ByteAcc
-				case 1:
-					access_size = 1;
-					break;
-				// WordAcc
-				case 2:
-					access_size = 2;
-					break;
-				// DWordAcc
-				case 3:
-					access_size = 4;
-					break;
-				// QWordAcc
-				case 4:
-					access_size = 8;
-					break;
-				// BufferAcc
-				case 5:
-					LOG << "qacpi error: BufferAcc is not supported" << endlog;
-					return Status::Unsupported;
-				default:
-					LOG << "qacpi error: Reserved field access size" << endlog;
-					return Status::Unsupported;
-			}
-
-			auto* node = create_or_get_node(StringView {name, 4}, SearchFlags::Create);
-			if (!node) {
+			ObjectRef obj;
+			if (!obj) {
 				return Status::NoMemory;
 			}
-			else if (node->object) {
-				LOG << "qacpi warning: skipping field " << StringView {name, 4}
-					<< " because a node with the same _name already exists" << endlog;
-			}
-			else {
-				node->parent = current_scope;
-
-				ObjectRef obj;
-				if (!obj) {
-					return Status::NoMemory;
-				}
-				if (auto normal = owner.get<NormalFieldInfo>()) {
-					auto copy = normal->owner;
-					obj->data = Field {
-						.type = Field::Normal,
-						.owner_index {move(copy)},
-						.data_bank {ObjectRef::empty()},
-						.connection {ObjectRef::empty()},
-						.bit_size = pkg_len.len,
-						.bit_offset = offset,
-						.access_size = access_size,
-						.update = update,
-						.lock = lock
-					};
-				}
-				else if (auto index = owner.get<IndexFieldInfo>()) {
-					auto index_copy = index->index;
-					auto data_copy = index->data;
-					obj->data = Field {
-						.type = Field::Index,
-						.owner_index {move(index_copy)},
-						.data_bank {move(data_copy)},
-						.connection {ObjectRef::empty()},
-						.bit_size = pkg_len.len,
-						.bit_offset = offset,
-						.access_size = access_size,
-						.update = update,
-						.lock = lock
-					};
-				}
-				else if (auto bank = owner.get<BankFieldInfo>()) {
-					auto owner_copy = bank->owner;
-					auto bank_copy = bank->bank;
-					obj->data = Field {
-						.type = Field::Bank,
-						.owner_index {move(owner_copy)},
-						.data_bank {move(bank_copy)},
-						.bank_value = bank->selection,
-						.connection {ObjectRef::empty()},
-						.bit_size = pkg_len.len,
-						.bit_offset = offset,
-						.access_size = access_size,
-						.update = update,
-						.lock = lock
-					};
-				}
-
-				obj->node = node;
-				node->object = move(obj);
+			obj->data = Unresolved {.name {move(str)}};
+			if (auto status = resolve_object(obj); status != Status::Success) {
+				return status;
 			}
 
-			offset += pkg_len.len;
+			if (!objects.push(move(obj))) {
+				return Status::NoMemory;
+			}
+			frames.back().ptr = list.frame.ptr;
+			list.connect_field_part2 = true;
 		}
+		else {
+			list.connect_field = true;
+		}
+	}
+	else {
+		CHECK_EOF_NUM(4);
+		auto* name = reinterpret_cast<const char*>(frame.ptr);
+		frame.ptr += 4;
+
+		PkgLength pkg_len {};
+		if (auto status = parse_pkg_len(frame, pkg_len); status != Status::Success) {
+			return status;
+		}
+
+		uint8_t access_size = 0;
+		switch (access_type) {
+			// AnyAcc
+			case 0:
+			// ByteAcc
+			case 1:
+			// BufferAcc
+			case 5:
+				access_size = 1;
+				break;
+			// WordAcc
+			case 2:
+				access_size = 2;
+				break;
+			// DWordAcc
+			case 3:
+				access_size = 4;
+				break;
+			// QWordAcc
+			case 4:
+				access_size = 8;
+				break;
+			default:
+				LOG << "qacpi error: Reserved field access size" << endlog;
+				return Status::Unsupported;
+		}
+
+		auto* node = create_or_get_node(StringView {name, 4}, SearchFlags::Create);
+		if (!node) {
+			return Status::NoMemory;
+		}
+		else if (node->object) {
+			LOG << "qacpi warning: skipping field " << StringView {name, 4}
+			    << " because a node with the same name already exists" << endlog;
+		}
+		else {
+			node->parent = current_scope;
+
+			auto connection_copy = list.connection;
+
+			ObjectRef obj;
+			if (!obj) {
+				return Status::NoMemory;
+			}
+			if (list.type == Field::Normal) {
+				obj->data = Field {
+					.type = Field::Normal,
+					.owner_index {ObjectRef::empty()},
+					.data_bank {ObjectRef::empty()},
+					.connection {move(connection_copy)},
+					.bit_size = pkg_len.len,
+					.bit_offset = list.offset,
+					.access_size = access_size,
+					.update = update,
+					.lock = lock
+				};
+			}
+			else if (list.type == Field::Index) {
+				obj->data = Field {
+					.type = Field::Index,
+					.owner_index {ObjectRef::empty()},
+					.data_bank {ObjectRef::empty()},
+					.connection {move(connection_copy)},
+					.bit_size = pkg_len.len,
+					.bit_offset = list.offset,
+					.access_size = access_size,
+					.update = update,
+					.lock = lock
+				};
+			}
+			else if (list.type == Field::Bank) {
+				obj->data = Field {
+					.type = Field::Bank,
+					.owner_index {ObjectRef::empty()},
+					.data_bank {ObjectRef::empty()},
+					.bank_value = 0,
+					.connection {move(connection_copy)},
+					.bit_size = pkg_len.len,
+					.bit_offset = list.offset,
+					.access_size = access_size,
+					.update = update,
+					.lock = lock
+				};
+			}
+
+			obj->node = node;
+			node->object = move(obj);
+
+			if (!list.nodes.push(node)) {
+				return Status::NoMemory;
+			}
+		}
+
+		list.offset += pkg_len.len;
 	}
 
 	return Status::Success;
@@ -1154,7 +1166,7 @@ Status Interpreter::parse_field_list(
 Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block, bool need_result) {
 	switch (block.block->handler) {
 		case OpHandler::None:
-			__builtin_trap();
+			break;
 		case OpHandler::Store:
 		{
 			auto target = objects.pop().get_unsafe<ObjectRef>();
@@ -2941,6 +2953,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 						if (!objects.push(move(value))) {
 							return Status::NoMemory;
 						}
+						frame_iter.need_result = false;
 					}
 					break;
 				}
@@ -3068,7 +3081,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					}
 
 					auto status = node->object->get_unsafe<OpRegion>().run_reg(method_frames.is_empty());
-					if (status != Status::Success) {
+					if (status != Status::Success && status != Status::NotFound) {
 						LOG << "qacpi error: failed to run _REG for " << name << endlog;
 						return status;
 					}
@@ -3176,10 +3189,14 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		}
 		case OpHandler::Field:
 		{
-			auto flags = objects.pop().get_unsafe<PkgLength>().len;
+			auto list = objects.pop().get_unsafe<FieldList>();
+			// flags
+			objects.pop();
 			auto reg_name = objects.pop().get_unsafe<String>();
-			auto pkg_len = objects.pop().get_unsafe<PkgLength>();
-			uint32_t len = pkg_len.len - (frame.ptr - pkg_len.start);
+			// length
+			objects.pop();
+
+			frame.ptr = list.frame.ptr;
 
 			auto* node = create_or_get_node(reg_name, SearchFlags::Search);
 			if (!node || !node->object) {
@@ -3189,9 +3206,11 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto region = node->object;
 			if (region->get<OpRegion>()) {
-				if (auto status = parse_field_list(frame, NormalFieldInfo {region}, len, flags);
-					status != Status::Success) {
-					return status;
+				for (size_t i = 0; i < list.nodes.size(); ++i) {
+					auto field_node = list.nodes[i];
+					auto& obj = field_node->object->get_unsafe<Field>();
+					auto copy = region;
+					obj.owner_index = move(copy);
 				}
 			}
 			else {
@@ -3640,11 +3659,15 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		}
 		case OpHandler::IndexField:
 		{
-			auto flags = objects.pop().get_unsafe<PkgLength>().len;
+			auto list = objects.pop().get_unsafe<FieldList>();
+			// flags
+			objects.pop();
 			auto data_name = objects.pop().get_unsafe<String>();
 			auto index_name = objects.pop().get_unsafe<String>();
-			auto pkg_len = objects.pop().get_unsafe<PkgLength>();
-			uint32_t len = pkg_len.len - (frame.ptr - pkg_len.start);
+			// length
+			objects.pop();
+
+			frame.ptr = list.frame.ptr;
 
 			auto* index_node = create_or_get_node(index_name, SearchFlags::Search);
 			if (!index_node || !index_node->object) {
@@ -3668,24 +3691,29 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto index_field = index_node->object;
 			auto data_field = data_node->object;
-			if (auto status = parse_field_list(
-				frame,
-				IndexFieldInfo {.index {move(index_field)}, .data {move(data_field)}},
-				len,
-				flags); status != Status::Success) {
-				return status;
+			for (size_t i = 0; i < list.nodes.size(); ++i) {
+				auto field_node = list.nodes[i];
+				auto& obj = field_node->object->get_unsafe<Field>();
+				auto index_copy = index_field;
+				auto data_copy = data_field;
+				obj.owner_index = move(index_copy);
+				obj.data_bank = move(data_copy);
 			}
 
 			break;
 		}
 		case OpHandler::BankField:
 		{
-			auto flags = objects.pop().get_unsafe<PkgLength>().len;
+			auto list = objects.pop().get_unsafe<FieldList>();
+			// flags
+			objects.pop();
 			auto selection = objects.pop().get_unsafe<ObjectRef>();
 			auto bank_name = objects.pop().get_unsafe<String>();
 			auto reg_name = objects.pop().get_unsafe<String>();
-			auto pkg_len = objects.pop().get_unsafe<PkgLength>();
-			uint32_t len = pkg_len.len - (frame.ptr - pkg_len.start);
+			// length
+			objects.pop();
+
+			frame.ptr = list.frame.ptr;
 
 			auto* region_node = create_or_get_node(reg_name, SearchFlags::Search);
 			if (!region_node || !region_node->object) {
@@ -3712,16 +3740,14 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto region = region_node->object;
 			auto bank = bank_node->object;
 			if (region->get<OpRegion>()) {
-				if (auto status = parse_field_list(
-						frame,
-						BankFieldInfo {
-							.owner {move(region)},
-							.bank {move(bank)},
-							.selection = selection_res->get_unsafe<uint64_t>()
-					    },
-						len,
-						flags); status != Status::Success) {
-					return status;
+				for (size_t i = 0; i < list.nodes.size(); ++i) {
+					auto field_node = list.nodes[i];
+					auto& obj = field_node->object->get_unsafe<Field>();
+					auto owner_copy = region;
+					auto bank_copy = bank;
+					obj.owner_index = move(owner_copy);
+					obj.data_bank = move(bank_copy);
+					obj.bank_value = selection_res->get_unsafe<uint64_t>();
 				}
 			}
 			else {
@@ -3898,7 +3924,19 @@ Status Interpreter::parse() {
 				}
 				if (frame.is_method) {
 					method_frames.pop_discard();
+					if (frame.need_result) {
+						ObjectRef obj;
+						if (!obj) {
+							return Status::NoMemory;
+						}
+						obj->data = uint64_t {0};
+
+						if (!objects.push(move(obj))) {
+							return Status::NoMemory;
+						}
+					}
 				}
+
 				frames.pop_discard();
 				continue;
 			}
@@ -3997,6 +4035,15 @@ Status Interpreter::parse() {
 					}
 					break;
 				}
+				case Op::FieldList:
+				{
+					auto& list = objects.back().get_unsafe<FieldList>();
+					if (list.frame.ptr != list.frame.end) {
+						return Status::InvalidAml;
+					}
+					break;
+				}
+				case Op::StartFieldList:
 				case Op::CallHandler:
 					break;
 			}
@@ -4187,6 +4234,94 @@ Status Interpreter::parse() {
 						return Status::NoMemory;
 					}
 
+					break;
+				}
+				case Op::StartFieldList:
+				{
+					uint32_t remaining_data;
+					uint8_t flags = objects[objects.size() - 1].get_unsafe<PkgLength>().len;
+					decltype(Field::Normal) type;
+
+					if (block.block->handler == OpHandler::Field) {
+						auto len = objects[objects.size() - 3].get_unsafe<PkgLength>();
+						remaining_data = len.len - (frame.ptr - len.start);
+						type = Field::Normal;
+					}
+					else if (block.block->handler == OpHandler::IndexField) {
+						auto len = objects[objects.size() - 4].get_unsafe<PkgLength>();
+						remaining_data = len.len - (frame.ptr - len.start);
+						type = Field::Index;
+					}
+					else if (block.block->handler == OpHandler::BankField) {
+						auto len = objects[objects.size() - 5].get_unsafe<PkgLength>();
+						remaining_data = len.len - (frame.ptr - len.start);
+						type = Field::Bank;
+					}
+					else {
+						__builtin_unreachable();
+					}
+
+					CHECK_EOF_NUM(remaining_data);
+
+					if (!objects.push(FieldList {
+						.nodes {},
+						.connection {ObjectRef::empty()},
+						.offset = 0,
+						.frame {
+							.start = frame.ptr,
+							.end = frame.ptr + remaining_data,
+							.ptr = frame.ptr,
+							.parent_scope = nullptr,
+							.op_blocks {},
+							.need_result = false,
+							.is_method = false,
+							.type = Frame::FieldList
+						},
+						.type = type,
+						.flags = flags
+					})) {
+						return Status::NoMemory;
+					}
+					break;
+				}
+				case Op::FieldList:
+				{
+					auto& list = objects[block.objects_at_start].get_unsafe<FieldList>();
+					if (list.connect_field) {
+						frame.ptr = list.frame.ptr;
+						block.processed = false;
+						if (!frame.op_blocks.push(OpBlockCtx {
+							.block = &TERM_ARG_BLOCK,
+							.objects_at_start = static_cast<uint32_t>(objects.size()),
+							.ip = 0,
+							.processed = false,
+							.need_result = true,
+							.as_ref = false
+						})) {
+							return Status::NoMemory;
+						}
+
+						list.connect_field = false;
+						list.connect_field_part2 = true;
+						break;
+					}
+					else if (list.connect_field_part2) {
+						auto connection = objects.pop().get_unsafe<ObjectRef>();
+						list.frame.ptr = frame.ptr;
+						list.connection = move(connection);
+						list.connect_field_part2 = false;
+					}
+
+					if (list.frame.ptr == list.frame.end) {
+						break;
+					}
+					else {
+						if (auto status = parse_field(list, list.frame); status != Status::Success) {
+							return status;
+						}
+
+						block.processed = false;
+					}
 					break;
 				}
 				case Op::CallHandler:
@@ -4415,10 +4550,10 @@ Status Interpreter::write_field(Field* field, const ObjectRef& value) {
 }
 
 Interpreter::MethodFrame::MethodFrame(Interpreter::MethodFrame&& other) noexcept {
-	for (int i = 0; i < 8; ++i) {
+	for (int i = 0; i < 7; ++i) {
 		args[i] = move(other.args[i]);
 	}
-	for (int i = 0; i < 7; ++i) {
+	for (int i = 0; i < 8; ++i) {
 		locals[i] = move(other.locals[i]);
 	}
 	node_link = other.node_link;

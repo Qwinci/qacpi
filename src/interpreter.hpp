@@ -32,7 +32,8 @@ namespace qacpi {
 				Scope,
 				Package,
 				If,
-				While
+				While,
+				FieldList
 			} type;
 		};
 
@@ -48,14 +49,14 @@ namespace qacpi {
 			NamespaceNode* node_link {};
 			Mutex* mutex_link {};
 			Mutex* serialize_mutex {};
-			ObjectRef args[8] {
+			ObjectRef args[7] {
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
-				ObjectRef::empty(), ObjectRef::empty()};
-			ObjectRef locals[7] {
+				ObjectRef::empty()};
+			ObjectRef locals[8] {
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
-				ObjectRef::empty()
+				ObjectRef::empty(), ObjectRef::empty()
 			};
 			bool moved {};
 		};
@@ -99,11 +100,18 @@ namespace qacpi {
 			uint64_t selection;
 		};
 
-		Status parse_field_list(
-			Frame& frame,
-			Variant<NormalFieldInfo, IndexFieldInfo, BankFieldInfo> owner,
-			uint32_t len,
-			uint8_t flags);
+		struct FieldList {
+			SmallVec<NamespaceNode*, 8> nodes;
+			ObjectRef connection;
+			uint32_t offset;
+			Frame frame;
+			decltype(Field::Normal) type;
+			uint8_t flags;
+			bool connect_field;
+			bool connect_field_part2;
+		};
+
+		Status parse_field(FieldList& list, Frame& frame);
 
 		Status handle_op(Frame& frame, const OpBlockCtx& block, bool need_result);
 		Status parse();
@@ -121,7 +129,7 @@ namespace qacpi {
 			NamespaceNode* parent_scope;
 			uint8_t remaining;
 		};
-		SmallVec<Variant<PkgLength, ObjectRef, String, MethodArgs>, 8> objects {};
+		SmallVec<Variant<PkgLength, ObjectRef, String, MethodArgs, FieldList>, 8> objects {};
 
 		static Status parse_pkg_len(Frame& frame, PkgLength& res);
 
