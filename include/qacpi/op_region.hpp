@@ -33,6 +33,6 @@ namespace qacpi {
 
 		Status read(uint64_t offset, uint8_t size, uint64_t& res);
 		Status write(uint64_t offset, uint8_t size, uint64_t value);
-		Status run_reg(bool global);
+		Status run_reg();
 	};
 }

@@ -36,6 +36,9 @@ namespace qacpi {
 
 		Status init_namespace();
 
+		void register_address_space_handler(RegionSpaceHandler* handler);
+		void deregister_address_space_handler(RegionSpaceHandler* handler);
+
 		constexpr NamespaceNode* get_root() {
 			return root;
 		}
@@ -52,7 +55,7 @@ namespace qacpi {
 			ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
 			ObjectRef::empty(), ObjectRef::empty()
 		};
-		const RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
+		RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
 		NamespaceNode* regions_to_reg {};
 		uint64_t timeout_100ns = 10 * 1000 * 1000 * 2;
 		uint8_t revision;

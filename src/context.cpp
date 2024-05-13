@@ -243,9 +243,23 @@ Status Context::init_namespace() {
 	auto* reg_region = regions_to_reg;
 	while (reg_region) {
 		auto& region = reg_region->object->get_unsafe<OpRegion>();
-		region.run_reg(true);
-		reg_region = reg_region->public_link;
-		regions_to_reg = reg_region;
+		auto status = region.run_reg();
+		if (status == Status::Success) {
+			if (reg_region->prev_link) {
+				reg_region->prev_link->next_link = reg_region->next_link;
+			}
+			else {
+				regions_to_reg = reg_region->next_link;
+			}
+			if (reg_region->next_link) {
+				reg_region->next_link->prev_link = reg_region->prev_link;
+			}
+
+			reg_region = reg_region->next_link;
+		}
+		else {
+			reg_region = reg_region->next_link;
+		}
 	}
 
 	SmallVec<NamespaceNode*, 32> stack;
@@ -299,4 +313,25 @@ Status Context::init_namespace() {
 	}
 
 	return Status::Success;
+}
+
+void Context::register_address_space_handler(RegionSpaceHandler* handler) {
+	handler->prev = nullptr;
+	handler->next = region_handlers;
+	if (handler->next) {
+		handler->next->prev = handler;
+	}
+	region_handlers = handler;
+}
+
+void Context::deregister_address_space_handler(RegionSpaceHandler* handler) {
+	if (handler->prev) {
+		handler->prev->next = handler->next;
+	}
+	else {
+		region_handlers = handler->next;
+	}
+	if (handler->next) {
+		handler->next->prev = handler->prev;
+	}
 }

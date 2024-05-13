@@ -137,7 +137,7 @@ namespace qacpi {
 		return qacpi_os_pci_write(region.pci_address, offset, size, value);
 	}
 
-	constexpr RegionSpaceHandler PCI_CONFIG_HANDLER {
+	constinit RegionSpaceHandler PCI_CONFIG_HANDLER {
 		.attach = pci_config_attach,
 		.detach = pci_config_detach,
 		.read = pci_config_read,

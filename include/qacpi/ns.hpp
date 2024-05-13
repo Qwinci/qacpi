@@ -28,7 +28,8 @@ namespace qacpi {
 			return child_count;
 		}
 
-		NamespaceNode* public_link {};
+		NamespaceNode* prev_link {};
+		NamespaceNode* next_link {};
 
 	private:
 		friend struct Context;

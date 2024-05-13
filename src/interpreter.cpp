@@ -3075,18 +3075,39 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			node->object = move(obj);
 
 			if (reg_space != RegionSpace::SystemMemory && reg_space != RegionSpace::SystemIo) {
+				bool found = false;
 				for (auto* handler = context->region_handlers; handler; handler = handler->next) {
 					if (handler->id != reg_space) {
 						continue;
 					}
 
-					auto status = node->object->get_unsafe<OpRegion>().run_reg(method_frames.is_empty());
-					if (status != Status::Success && status != Status::NotFound) {
+					auto status = node->object->get_unsafe<OpRegion>().run_reg();
+					if (status == Status::MethodNotFound) {
+						if (method_frames.is_empty()) {
+							node->prev_link = nullptr;
+							node->next_link = context->regions_to_reg;
+							if (node->next_link) {
+								node->next_link->prev_link = node;
+							}
+							context->regions_to_reg = node;
+						}
+					}
+					else if (status != Status::Success) {
 						LOG << "qacpi error: failed to run _REG for " << name << endlog;
 						return status;
 					}
 
+					found = true;
 					break;
+				}
+
+				if (!found && method_frames.is_empty()) {
+					node->prev_link = nullptr;
+					node->next_link = context->regions_to_reg;
+					if (node->next_link) {
+						node->next_link->prev_link = node;
+					}
+					context->regions_to_reg = node;
 				}
 			}
 
