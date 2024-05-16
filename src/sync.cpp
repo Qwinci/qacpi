@@ -28,12 +28,19 @@ namespace qacpi {
 	}
 
 	Status Mutex::lock(uint16_t timeout_ms) {
-		owner = qacpi_os_get_tid();
-		return qacpi_os_mutex_lock(handle, timeout_ms);
+		auto status = qacpi_os_mutex_lock(handle, timeout_ms);
+		if (status == Status::Success) {
+			owner = qacpi_os_get_tid();
+		}
+		return status;
 	}
 
 	Status Mutex::unlock() {
-		return qacpi_os_mutex_unlock(handle);
+		if (auto status = qacpi_os_mutex_unlock(handle); status != Status::Success) {
+			return status;
+		}
+		owner = nullptr;
+		return Status::Success;
 	}
 
 	Event::Event(Event&& other) noexcept {
