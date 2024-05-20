@@ -124,6 +124,14 @@ namespace qacpi {
 
 		bool clone(const Package& other);
 
+		[[nodiscard]] constexpr uint32_t size() const {
+			return data->element_count;
+		}
+
+	private:
+		friend struct Interpreter;
+		friend struct Context;
+
 		struct Data {
 			~Data();
 

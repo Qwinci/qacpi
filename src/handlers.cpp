@@ -37,8 +37,8 @@ namespace qacpi {
 						cid_id = EisaId::decode(*integer);
 					}
 					else if (auto pkg = res->get<Package>()) {
-						for (uint32_t i = 0; i < pkg->data->element_count; ++i) {
-							auto& element = pkg->data->elements[i];
+						for (uint32_t i = 0; i < pkg->size(); ++i) {
+							auto element = ctx->get_package_element(res, i);
 							if ((str = element->get<String>())) {
 								if (str->size() >= 6) {
 									cid_id = EisaId {str->data(), str->size()};

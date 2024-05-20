@@ -61,12 +61,7 @@ namespace qacpi {
 			bool moved {};
 		};
 
-		enum class SearchFlags {
-			Create,
-			Search
-		};
-
-		NamespaceNode* create_or_get_node(StringView name, SearchFlags flags);
+		NamespaceNode* create_or_get_node(StringView name, Context::SearchFlags flags);
 
 		Status execute(const uint8_t* aml, uint32_t size);
 		Status invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef* args, int arg_count);

@@ -39,109 +39,8 @@ static bool is_name_char(uint8_t c) {
 		c == DualNamePrefix || c == MultiNamePrefix;
 }
 
-static bool name_cmp(const char* a, const char* b) {
-	return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
-}
-
-NamespaceNode* Interpreter::create_or_get_node(StringView name, Interpreter::SearchFlags flags) {
-	auto* ptr = name.ptr;
-	auto size = name.size;
-	if (!size) {
-		return nullptr;
-	}
-
-	NamespaceNode* node;
-	if (*ptr == RootChar) {
-		node = context->get_root();
-		++ptr;
-		--size;
-		if (!size) {
-			return node;
-		}
-	}
-	else if (*ptr == ParentPrefixChar) {
-		node = current_scope;
-		while (*ptr == ParentPrefixChar) {
-			++ptr;
-			--size;
-			if (!node->parent) {
-				return nullptr;
-			}
-			node = node->parent;
-			if (!size) {
-				return node;
-			}
-		}
-		if (!size) {
-			return node;
-		}
-	}
-	else {
-		node = current_scope;
-	}
-
-	while (true) {
-		if (size < 4) {
-			return nullptr;
-		}
-
-		auto* segment = ptr;
-		ptr += 4;
-		size -= 4;
-
-		again:
-		bool found = false;
-		for (size_t i = 0; i < node->child_count; ++i) {
-			if (name_cmp(node->children[i]->_name, segment)) {
-				node = node->children[i];
-				found = true;
-				break;
-			}
-		}
-
-		if (found) {
-			if (!size) {
-				return node;
-			}
-			++ptr;
-			--size;
-		}
-		else if (flags == SearchFlags::Search) {
-			node = node->parent;
-			if (!node) {
-				return nullptr;
-			}
-			goto again;
-		}
-		else if (flags == SearchFlags::Create) {
-			auto* new_node = NamespaceNode::create(segment);
-			if (!new_node) {
-				return nullptr;
-			}
-			if (!node->add_child(new_node)) {
-				new_node->~NamespaceNode();
-				qacpi_os_free(new_node, sizeof(NamespaceNode));
-				return nullptr;
-			}
-
-			if (!method_frames.is_empty()) {
-				auto& frame = method_frames.back();
-				new_node->link = frame.node_link;
-				frame.node_link = new_node;
-			}
-			else {
-				new_node->link = context->all_nodes;
-				context->all_nodes = new_node;
-			}
-
-			if (!size) {
-				return new_node;
-			}
-			++ptr;
-			--size;
-			node = new_node;
-		}
-	}
+NamespaceNode* Interpreter::create_or_get_node(StringView name, Context::SearchFlags flags) {
+	return context->create_or_find_node(current_scope, !method_frames.is_empty() ? &method_frames.back() : nullptr, name, flags);
 }
 
 static constexpr OpBlock CALL_BLOCK {
@@ -155,7 +54,7 @@ static constexpr OpBlock CALL_BLOCK {
 
 Status Interpreter::resolve_object(ObjectRef& object) {
 	if (auto unresolved = object->get<Unresolved>()) {
-		auto* node = create_or_get_node(unresolved->name, SearchFlags::Search);
+		auto* node = create_or_get_node(unresolved->name, Context::SearchFlags::Search);
 		if (!node) {
 			return Status::NotFound;
 		}
@@ -231,6 +130,10 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 
 		if (status == Status::Success && !objects.is_empty()) {
 			res = pop_and_unwrap_obj();
+
+			if (!res->node) {
+				res->node = method_node->parent;
+			}
 		}
 		else {
 			if (res) {
@@ -357,7 +260,7 @@ Status Interpreter::handle_name(Interpreter::Frame& frame, bool need_result, boo
 		return Status::InvalidAml;
 	}
 
-	auto* node = create_or_get_node(str, SearchFlags::Search);
+	auto* node = create_or_get_node(str, Context::SearchFlags::Search);
 	if (!node) {
 		if (frame.type == Frame::Package) {
 			ObjectRef obj;
@@ -1091,7 +994,7 @@ Status Interpreter::parse_field(FieldList& list, Frame& frame) {
 				return Status::Unsupported;
 		}
 
-		auto* node = create_or_get_node(StringView {name, 4}, SearchFlags::Create);
+		auto* node = create_or_get_node(StringView {name, 4}, Context::SearchFlags::Create);
 		if (!node) {
 			return Status::NoMemory;
 		}
@@ -1511,7 +1414,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto value = pop_and_unwrap_obj();
 			auto name = objects.pop().get_unsafe<String>();
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -1539,7 +1442,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			CHECK_EOF_NUM(len);
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -1942,13 +1845,13 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto name = objects.pop().get_unsafe<String>();
 			auto src = objects.pop().get_unsafe<String>();
 
-			auto* node = create_or_get_node(src, SearchFlags::Search);
+			auto* node = create_or_get_node(src, Context::SearchFlags::Search);
 			if (!node) {
 				LOG << "qacpi: node " << src << " was not found (required by alias "
 					<< name << ")" << endlog;
 			}
 
-			auto* new_node = create_or_get_node(name, SearchFlags::Create);
+			auto* new_node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!new_node) {
 				return Status::NoMemory;
 			}
@@ -1980,7 +1883,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			CHECK_EOF_NUM(len);
 
-			auto* node = create_or_get_node(name, SearchFlags::Search);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Search);
 			if (block.block->handler == OpHandler::Scope) {
 				if (!node) {
 					LOG << "qacpi: skipping non-existing scope " << name << endlog;
@@ -1989,7 +1892,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				}
 			}
 			else {
-				node = create_or_get_node(name, SearchFlags::Create);
+				node = create_or_get_node(name, Context::SearchFlags::Create);
 			}
 
 			if (!node) {
@@ -2049,7 +1952,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto flags = objects.pop().get_unsafe<PkgLength>().len;
 			auto name = objects.pop().get_unsafe<String>();
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -2103,7 +2006,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::InvalidAml;
 			}
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -2140,7 +2043,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		{
 			auto name = objects.pop().get_unsafe<String>();
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -3044,7 +2947,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto len = len_value->get_unsafe<uint64_t>();
 			auto offset = offset_value->get_unsafe<uint64_t>();
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -3176,7 +3079,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::InvalidAml;
 			}
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -3219,7 +3122,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			frame.ptr = list.frame.ptr;
 
-			auto* node = create_or_get_node(reg_name, SearchFlags::Search);
+			auto* node = create_or_get_node(reg_name, Context::SearchFlags::Search);
 			if (!node || !node->object) {
 				LOG << "qacpi error: Operation Region " << reg_name << " doesn't exist" << endlog;
 				return Status::InvalidAml;
@@ -3251,7 +3154,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			CHECK_EOF_NUM(len);
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -3309,7 +3212,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			CHECK_EOF_NUM(len);
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -3410,7 +3313,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			CHECK_EOF_NUM(len);
 
-			auto* node = create_or_get_node(name, SearchFlags::Create);
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
 			if (!node) {
 				return Status::NoMemory;
 			}
@@ -3690,7 +3593,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			frame.ptr = list.frame.ptr;
 
-			auto* index_node = create_or_get_node(index_name, SearchFlags::Search);
+			auto* index_node = create_or_get_node(index_name, Context::SearchFlags::Search);
 			if (!index_node || !index_node->object) {
 				LOG << "qacpi error: Node " << index_name << " doesn't exist (needed as IndexField Index)" << endlog;
 				return Status::InvalidAml;
@@ -3700,7 +3603,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::InvalidAml;
 			}
 
-			auto* data_node = create_or_get_node(data_name, SearchFlags::Search);
+			auto* data_node = create_or_get_node(data_name, Context::SearchFlags::Search);
 			if (!data_node || !data_node->object) {
 				LOG << "qacpi error: Node " << data_name << " doesn't exist (needed as IndexField Data)" << endlog;
 				return Status::InvalidAml;
@@ -3736,13 +3639,13 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			frame.ptr = list.frame.ptr;
 
-			auto* region_node = create_or_get_node(reg_name, SearchFlags::Search);
+			auto* region_node = create_or_get_node(reg_name, Context::SearchFlags::Search);
 			if (!region_node || !region_node->object) {
 				LOG << "qacpi error: Node " << reg_name << " doesn't exist (needed as BankField Region)" << endlog;
 				return Status::InvalidAml;
 			}
 
-			auto* bank_node = create_or_get_node(bank_name, SearchFlags::Search);
+			auto* bank_node = create_or_get_node(bank_name, Context::SearchFlags::Search);
 			if (!bank_node || !bank_node->object) {
 				LOG << "qacpi error: Node " << bank_name << " doesn't exist (needed as BankField Bank)" << endlog;
 				return Status::InvalidAml;

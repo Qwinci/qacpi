@@ -51,6 +51,16 @@ namespace qacpi {
 			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
 		}
 
+		inline NamespaceNode* find_node(NamespaceNode* start, StringView name) {
+			if (!start) {
+				start = root;
+			}
+
+			return create_or_find_node(start, nullptr, name, SearchFlags::Search);
+		}
+
+		ObjectRef get_package_element(ObjectRef& pkg, uint32_t index);
+
 		constexpr NamespaceNode* get_root() {
 			return root;
 		}
@@ -59,11 +69,18 @@ namespace qacpi {
 		friend struct Interpreter;
 		friend struct OpRegion;
 
+		enum class SearchFlags {
+			Create,
+			Search
+		};
+
 		template<typename F>
 		static bool node_visit_helper(Context& ctx, NamespaceNode* node, void* user_arg) {
 			auto& fn = *static_cast<remove_reference_t<F>*>(user_arg);
 			return fn(ctx, node);
 		}
+
+		NamespaceNode* create_or_find_node(NamespaceNode* start, void* method_frame, StringView name, SearchFlags flags);
 
 		NamespaceNode* root {};
 		NamespaceNode* all_nodes {};
