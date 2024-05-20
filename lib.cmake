@@ -10,6 +10,7 @@ add_library(qacpi_lib STATIC
 	${CMAKE_CURRENT_LIST_DIR}/src/utils.cpp
 	${CMAKE_CURRENT_LIST_DIR}/src/logger.cpp
 	${CMAKE_CURRENT_LIST_DIR}/src/op_region.cpp
+	${CMAKE_CURRENT_LIST_DIR}/src/resources.cpp
 	generated/osi.hpp
 )
 target_compile_options(qacpi_lib PRIVATE

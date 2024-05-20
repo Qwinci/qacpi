@@ -62,6 +62,10 @@ namespace qacpi {
 				return "unsupported operation";
 			case Status::InternalError:
 				return "internal error";
+			case Status::EndOfResources:
+				return "end of resources";
+			case Status::InvalidResource:
+				return "invalid resource";
 		}
 		return "";
 	}

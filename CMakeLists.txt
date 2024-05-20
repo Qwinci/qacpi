@@ -16,6 +16,7 @@ add_executable(qacpi
 	src/utils.cpp
 	src/logger.cpp
 	src/op_region.cpp
+	src/resources.cpp
 	generated/osi.hpp
 )
 target_compile_options(qacpi PRIVATE

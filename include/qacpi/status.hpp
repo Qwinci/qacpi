@@ -11,6 +11,8 @@ namespace qacpi {
 		MethodNotFound,
 		TimeOut,
 		Unsupported,
-		InternalError
+		InternalError,
+		EndOfResources,
+		InvalidResource
 	};
 }
