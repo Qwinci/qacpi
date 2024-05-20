@@ -335,3 +335,101 @@ void Context::deregister_address_space_handler(RegionSpaceHandler* handler) {
 		handler->next->prev = handler->prev;
 	}
 }
+
+Status Context::discover_nodes(
+	NamespaceNode* start,
+	const EisaId* ids,
+	size_t id_count,
+	bool (*fn)(Context&, NamespaceNode*, void*),
+	void* user_arg) {
+	SmallVec<NamespaceNode*, 8> stack;
+	if (!stack.push(start)) {
+		return Status::NoMemory;
+	}
+
+	while (!stack.is_empty()) {
+		auto node = stack.pop();
+
+		auto res = ObjectRef::empty();
+		auto status = evaluate(node, "_HID", res);
+
+		EisaId hid_id;
+		EisaId cid_id;
+
+		if (status == Status::Success) {
+			if (auto str = res->get<String>()) {
+				if (str->size() >= 6) {
+					hid_id = EisaId {str->data(), str->size()};
+				}
+			}
+			else if (auto integer = res->get<uint64_t>()) {
+				hid_id = EisaId::decode(*integer);
+			}
+		}
+		else if (status != Status::MethodNotFound) {
+			return status;
+		}
+
+		for (size_t i = 0; i < id_count; ++i) {
+			if (ids[i] == hid_id) {
+				if (fn(*this, node, user_arg)) {
+					return Status::Success;
+				}
+			}
+		}
+
+		status = evaluate(node, "_CID", res);
+		if (status == Status::Success) {
+			if (auto str = res->get<String>()) {
+				if (str->size() >= 6) {
+					cid_id = EisaId {str->data(), str->size()};
+				}
+			}
+			else if (auto integer = res->get<uint64_t>()) {
+				cid_id = EisaId::decode(*integer);
+			}
+			else if (auto pkg = res->get<Package>()) {
+				for (uint32_t i = 0; i < pkg->data->element_count; ++i) {
+					auto& element = pkg->data->elements[i];
+					if ((str = element->get<String>())) {
+						if (str->size() >= 6) {
+							cid_id = EisaId {str->data(), str->size()};
+						}
+					}
+					else if ((integer = element->get<uint64_t>())) {
+						cid_id = EisaId::decode(*integer);
+					}
+
+					for (size_t j = 0; j < id_count; ++j) {
+						if (ids[j] == cid_id) {
+							if (fn(*this, node, user_arg)) {
+								return Status::Success;
+							}
+						}
+					}
+				}
+
+				cid_id = {};
+			}
+		}
+		else if (status != Status::MethodNotFound) {
+			return status;
+		}
+
+		for (size_t i = 0; i < id_count; ++i) {
+			if (ids[i] == cid_id) {
+				if (fn(*this, node, user_arg)) {
+					return Status::Success;
+				}
+			}
+		}
+
+		for (size_t i = 0; i < node->child_count; ++i) {
+			if (!stack.push(node->children[i])) {
+				return Status::NoMemory;
+			}
+		}
+	}
+
+	return Status::Success;
+}

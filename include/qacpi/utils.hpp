@@ -44,4 +44,7 @@ namespace qacpi {
 	};
 
 	const char* status_to_str(Status status);
+
+	static constexpr EisaId PCIE_ID {"PNP0A08"};
+	static constexpr EisaId PCI_ID {"PNP0A03"};
 }

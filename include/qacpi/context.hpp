@@ -39,6 +39,18 @@ namespace qacpi {
 		void register_address_space_handler(RegionSpaceHandler* handler);
 		void deregister_address_space_handler(RegionSpaceHandler* handler);
 
+		Status discover_nodes(
+			NamespaceNode* start,
+			const EisaId* ids,
+			size_t id_count,
+			bool (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
+			void* user_arg);
+
+		template<typename F>
+		Status discover_nodes(NamespaceNode* start, const EisaId* ids, size_t id_count, F f) {
+			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
+		}
+
 		constexpr NamespaceNode* get_root() {
 			return root;
 		}
@@ -46,6 +58,12 @@ namespace qacpi {
 	private:
 		friend struct Interpreter;
 		friend struct OpRegion;
+
+		template<typename F>
+		static bool node_visit_helper(Context& ctx, NamespaceNode* node, void* user_arg) {
+			auto& fn = *static_cast<remove_reference_t<F>*>(user_arg);
+			return fn(ctx, node);
+		}
 
 		NamespaceNode* root {};
 		NamespaceNode* all_nodes {};

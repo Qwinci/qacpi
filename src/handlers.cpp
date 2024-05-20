@@ -3,9 +3,6 @@
 #include "qacpi/utils.hpp"
 
 namespace qacpi {
-	static constexpr EisaId PCIE_ID {"PNP0A08"};
-	static constexpr EisaId PCI_ID {"PNP0A03"};
-
 	Status pci_config_attach(Context* ctx, NamespaceNode* node) {
 		while (node) {
 			auto res = ObjectRef::empty();
