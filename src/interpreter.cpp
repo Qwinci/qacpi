@@ -132,7 +132,7 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 			res = pop_and_unwrap_obj();
 
 			if (!res->node) {
-				res->node = method_node->parent;
+				res->node = node->parent;
 			}
 		}
 		else {
@@ -4202,7 +4202,9 @@ Status Interpreter::parse() {
 							.type = Frame::FieldList
 						},
 						.type = type,
-						.flags = flags
+						.flags = flags,
+						.connect_field = false,
+						.connect_field_part2 = false
 					})) {
 						return Status::NoMemory;
 					}

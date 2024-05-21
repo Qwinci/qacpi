@@ -117,8 +117,8 @@ void qacpi_os_free(void* ptr, size_t size) {
 		abort();
 	}
 
-	free(ptr);
 	ALLOCATIONS.erase(ptr);
+	free(ptr);
 }
 
 void qacpi_os_stall(uint64_t us) {
