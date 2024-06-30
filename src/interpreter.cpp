@@ -274,7 +274,9 @@ Status Interpreter::handle_name(Interpreter::Frame& frame, bool need_result, boo
 			return Status::Success;
 		}
 
-		LOG << "qacpi warning: node " << str << " was not found" << endlog;
+		if (context->log_level >= LogLevel::Warning) {
+			LOG << "qacpi warning: node " << str << " was not found" << endlog;
+		}
 		return Status::NotFound;
 	}
 	else if (!node->object) {
@@ -1419,7 +1421,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			node->parent = current_scope;
@@ -1447,7 +1451,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				frame.ptr += len;
 				break;
 			}
@@ -1847,8 +1853,10 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto* node = create_or_get_node(src, Context::SearchFlags::Search);
 			if (!node) {
-				LOG << "qacpi: node " << src << " was not found (required by alias "
-					<< name << ")" << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: node " << src << " was not found (required by alias "
+						<< name << ")" << endlog;
+				}
 			}
 
 			auto* new_node = create_or_get_node(name, Context::SearchFlags::Create);
@@ -1856,7 +1864,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (new_node->object) {
-				LOG << "qacpi: skipping duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			new_node->parent = current_scope;
@@ -1899,7 +1909,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object && block.block->handler == OpHandler::Device) {
-				LOG << "qacpi: skipping duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				frame.ptr += len;
 				break;
 			}
@@ -1957,7 +1969,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			node->parent = current_scope;
@@ -2011,7 +2025,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			node->parent = current_scope;
@@ -2048,7 +2064,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			node->parent = current_scope;
@@ -2952,7 +2970,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi: skipping duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			node->parent = current_scope;
@@ -3084,7 +3104,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				break;
 			}
 			node->parent = current_scope;
@@ -3159,7 +3181,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi: skipping duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				frame.ptr += len;
 				break;
 			}
@@ -3217,7 +3241,9 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			else if (node->object) {
-				LOG << "qacpi: skipping duplicate node " << name << endlog;
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
 				frame.ptr += len;
 				break;
 			}

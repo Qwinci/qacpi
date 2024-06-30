@@ -23,8 +23,9 @@ int main() {
 	uint32_t aml_size = ...;
 	
 	// Create a context that holds the global namespace
-	// revision is the revision from the DSDT header.
-	qacpi::Context ctx {revision};
+	// revision is the revision from the DSDT header
+	// log level indicates the minimum verbosity of the logged messages
+	qacpi::Context ctx {revision, qacpi::LogLevel::Verbose};
 	
 	// Initialize the context
 	auto status = ctx.init();

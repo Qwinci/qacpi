@@ -22,8 +22,31 @@ namespace qacpi {
 		}
 	};
 
+	enum class LogLevel : uint8_t {
+		Error,
+		Warning,
+		Info,
+		Verbose
+	};
+
+	inline constexpr bool operator>(LogLevel lhs, LogLevel rhs) {
+		return static_cast<int>(lhs) > static_cast<int>(rhs);
+	}
+
+	inline constexpr bool operator>=(LogLevel lhs, LogLevel rhs) {
+		return static_cast<int>(lhs) >= static_cast<int>(rhs);
+	}
+
+	inline constexpr bool operator<(LogLevel lhs, LogLevel rhs) {
+		return static_cast<int>(lhs) < static_cast<int>(rhs);
+	}
+
+	inline constexpr bool operator<=(LogLevel lhs, LogLevel rhs) {
+		return static_cast<int>(lhs) <= static_cast<int>(rhs);
+	}
+
 	struct Context {
-		constexpr explicit Context(uint8_t revision) : revision {revision} {}
+		constexpr Context(uint8_t revision, LogLevel log_level) : revision {revision}, log_level {log_level} {}
 
 		Status init();
 
@@ -94,5 +117,6 @@ namespace qacpi {
 		NamespaceNode* regions_to_reg {};
 		uint64_t timeout_100ns = 10 * 1000 * 1000 * 2;
 		uint8_t revision;
+		LogLevel log_level;
 	};
 }
