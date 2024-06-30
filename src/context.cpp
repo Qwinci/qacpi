@@ -298,6 +298,30 @@ void Context::register_address_space_handler(RegionSpaceHandler* handler) {
 		handler->next->prev = handler;
 	}
 	region_handlers = handler;
+
+	auto* reg_region = regions_to_reg;
+	while (reg_region) {
+		auto& region = reg_region->object->get_unsafe<OpRegion>();
+		if (region.space == handler->id) {
+			auto status = region.run_reg();
+			if (status == Status::Success) {
+				if (reg_region->prev_link) {
+					reg_region->prev_link->next_link = reg_region->next_link;
+				}
+				else {
+					regions_to_reg = reg_region->next_link;
+				}
+				if (reg_region->next_link) {
+					reg_region->next_link->prev_link = reg_region->prev_link;
+				}
+
+				reg_region = reg_region->next_link;
+			}
+			else {
+				reg_region = reg_region->next_link;
+			}
+		}
+	}
 }
 
 void Context::deregister_address_space_handler(RegionSpaceHandler* handler) {

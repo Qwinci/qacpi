@@ -7,6 +7,21 @@ namespace qacpi {
 	static constexpr uint64_t OP_REGION_CONNECT = 1;
 
 	Status OpRegion::run_reg() {
+		if (space != RegionSpace::SystemMemory && space != RegionSpace::SystemIo) {
+			bool found = false;
+
+			for (auto handler = ctx.region_handlers; handler; handler = handler->next) {
+				if (handler->id == space) {
+					found = true;
+					break;
+				}
+			}
+
+			if (!found) {
+				return Status::NotFound;
+			}
+		}
+
 		ObjectRef args[2];
 		if (!args[0] || !args[1]) {
 			return Status::NoMemory;
