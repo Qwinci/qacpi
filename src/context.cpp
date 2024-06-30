@@ -415,6 +415,91 @@ Status Context::discover_nodes(
 	return Status::Success;
 }
 
+Status Context::discover_nodes(
+	NamespaceNode* start,
+	const StringView* ids,
+	size_t id_count,
+	bool (*fn)(Context&, NamespaceNode*, void*),
+	void* user_arg) {
+	SmallVec<NamespaceNode*, 8> stack;
+	if (!stack.push(start)) {
+		return Status::NoMemory;
+	}
+
+	while (!stack.is_empty()) {
+		auto node = stack.pop();
+
+		auto res = ObjectRef::empty();
+		auto status = evaluate(node, "_HID", res);
+
+		bool matched = false;
+
+		if (status == Status::Success) {
+			if (auto str = res->get<String>()) {
+				for (size_t i = 0; i < id_count; ++i) {
+					if (ids[i] == *str) {
+						if (fn(*this, node, user_arg)) {
+							return Status::Success;
+						}
+						matched = true;
+						break;
+					}
+				}
+			}
+		}
+		else if (status != Status::MethodNotFound) {
+			return status;
+		}
+
+		if (!matched) {
+			status = evaluate(node, "_CID", res);
+			if (status == Status::Success) {
+				if (auto str = res->get<String>()) {
+					for (size_t i = 0; i < id_count; ++i) {
+						if (ids[i] == *str) {
+							if (fn(*this, node, user_arg)) {
+								return Status::Success;
+							}
+							break;
+						}
+					}
+				}
+				else if (auto pkg = res->get<Package>()) {
+					for (uint32_t i = 0; i < pkg->data->element_count; ++i) {
+						auto& element = pkg->data->elements[i];
+						if ((str = element->get<String>())) {
+							for (size_t j = 0; j < id_count; ++j) {
+								if (ids[j] == *str) {
+									if (fn(*this, node, user_arg)) {
+										return Status::Success;
+									}
+									matched = true;
+									break;
+								}
+							}
+						}
+
+						if (matched) {
+							break;
+						}
+					}
+				}
+			}
+			else if (status != Status::MethodNotFound) {
+				return status;
+			}
+		}
+
+		for (size_t i = 0; i < node->child_count; ++i) {
+			if (!stack.push(node->children[i])) {
+				return Status::NoMemory;
+			}
+		}
+	}
+
+	return Status::Success;
+}
+
 static bool name_cmp(const char* a, const char* b) {
 	return a[0] == b[0] && a[1] == b[1] && a[2] == b[2] && a[3] == b[3];
 }

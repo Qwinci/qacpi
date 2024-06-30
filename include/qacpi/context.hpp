@@ -12,6 +12,18 @@ namespace qacpi {
 		constexpr StringView(const String& str) : ptr {str.data()}, size {str.size()} {} // NOLINT(*-explicit-constructor)
 		constexpr StringView(const char* str) : ptr {str}, size {const_strlen(str)} {} // NOLINT(*-explicit-constructor)
 
+		[[nodiscard]] constexpr bool operator==(const StringView& other) const {
+			if (size != other.size) {
+				return false;
+			}
+			for (size_t i = 0; i < size; ++i) {
+				if (ptr[i] != other.ptr[i]) {
+					return false;
+				}
+			}
+			return true;
+		}
+
 		const char* ptr {};
 		size_t size {};
 
@@ -69,8 +81,20 @@ namespace qacpi {
 			bool (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
 			void* user_arg);
 
+		Status discover_nodes(
+			NamespaceNode* start,
+			const StringView* ids,
+			size_t id_count,
+			bool (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
+			void* user_arg);
+
 		template<typename F>
 		Status discover_nodes(NamespaceNode* start, const EisaId* ids, size_t id_count, F f) {
+			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
+		}
+
+		template<typename F>
+		Status discover_nodes(NamespaceNode* start, const StringView* ids, size_t id_count, F f) {
 			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
 		}
 
