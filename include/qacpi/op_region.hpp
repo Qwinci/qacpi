@@ -4,20 +4,6 @@
 #include "status.hpp"
 
 namespace qacpi {
-	enum class RegionSpace : uint8_t {
-		SystemMemory = 0x0,
-		SystemIo = 0x1,
-		PciConfig = 0x2,
-		EmbeddedControl = 0x3,
-		SmBus = 0x4,
-		SystemCmos = 0x5,
-		PciBarTarget = 0x6,
-		Ipmi = 0x7,
-		GeneralPurposeIo = 0x8,
-		GenericSerialBus = 0x9,
-		Pcc = 0xA
-	};
-
 	struct Context;
 	struct NamespaceNode;
 

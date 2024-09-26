@@ -43,6 +43,31 @@ namespace qacpi {
 		uint16_t function;
 	};
 
+	enum class RegionSpace : uint8_t {
+		SystemMemory = 0x0,
+		SystemIo = 0x1,
+		PciConfig = 0x2,
+		EmbeddedControl = 0x3,
+		SmBus = 0x4,
+		SystemCmos = 0x5,
+		PciBarTarget = 0x6,
+		Ipmi = 0x7,
+		GeneralPurposeIo = 0x8,
+		GenericSerialBus = 0x9,
+		Pcc = 0xA
+	};
+
+	struct [[gnu::packed]] Address {
+		RegionSpace space_id;
+		uint8_t reg_bit_width;
+		uint8_t reg_bit_offset;
+		uint8_t access_size;
+		uint64_t address;
+	};
+
+	Status read_from_addr(const Address& addr, uint64_t& res);
+	Status write_to_addr(const Address& addr, uint64_t value);
+
 	const char* status_to_str(Status status);
 
 	static constexpr EisaId PCIE_ID {"PNP0A08"};
