@@ -53,6 +53,12 @@ add_custom_command(OUTPUT "generated/osi.hpp"
 	DEPENDS "osi.dsl"
 )
 
+add_custom_target(update_generated
+	DEPENDS "generated/osi.hpp"
+	COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/generated"
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different "generated/osi.hpp" "${CMAKE_SOURCE_DIR}/generated/osi.hpp"
+)
+
 add_custom_target(build_amls
 	DEPENDS ${TEST_AMLS}
 )
