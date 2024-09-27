@@ -91,6 +91,7 @@ namespace qacpi {
 					qacpi_os_free(ptr, other.data->element_count * sizeof(ObjectRef));
 					return false;
 				}
+				ptr[i]->node = other.data->elements[i]->node;
 			}
 			data->elements = ptr;
 			data->element_count = other.data->element_count;
