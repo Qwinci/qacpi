@@ -340,8 +340,12 @@ Status Context::discover_nodes(
 	NamespaceNode* start,
 	const EisaId* ids,
 	size_t id_count,
-	bool (*fn)(Context&, NamespaceNode*, void*),
+	IterDecision (*fn)(Context&, NamespaceNode*, void*),
 	void* user_arg) {
+	if (!start) {
+		start = root;
+	}
+
 	SmallVec<NamespaceNode*, 8> stack;
 	if (!stack.push(start)) {
 		return Status::NoMemory;
@@ -374,7 +378,7 @@ Status Context::discover_nodes(
 
 		for (size_t i = 0; i < id_count; ++i) {
 			if (ids[i] == hid_id) {
-				if (fn(*this, node, user_arg)) {
+				if (fn(*this, node, user_arg) == IterDecision::Break) {
 					return Status::Success;
 				}
 				matched = true;
@@ -405,7 +409,7 @@ Status Context::discover_nodes(
 
 					for (size_t j = 0; j < id_count; ++j) {
 						if (ids[j] == cid_id) {
-							if (fn(*this, node, user_arg)) {
+							if (fn(*this, node, user_arg) == IterDecision::Break) {
 								return Status::Success;
 							}
 						}
@@ -422,7 +426,7 @@ Status Context::discover_nodes(
 		if (!matched) {
 			for (size_t i = 0; i < id_count; ++i) {
 				if (ids[i] == cid_id) {
-					if (fn(*this, node, user_arg)) {
+					if (fn(*this, node, user_arg) == IterDecision::Break) {
 						return Status::Success;
 					}
 				}
@@ -443,8 +447,12 @@ Status Context::discover_nodes(
 	NamespaceNode* start,
 	const StringView* ids,
 	size_t id_count,
-	bool (*fn)(Context&, NamespaceNode*, void*),
+	IterDecision (*fn)(Context&, NamespaceNode*, void*),
 	void* user_arg) {
+	if (!start) {
+		start = root;
+	}
+
 	SmallVec<NamespaceNode*, 8> stack;
 	if (!stack.push(start)) {
 		return Status::NoMemory;
@@ -462,7 +470,7 @@ Status Context::discover_nodes(
 			if (auto str = res->get<String>()) {
 				for (size_t i = 0; i < id_count; ++i) {
 					if (ids[i] == *str) {
-						if (fn(*this, node, user_arg)) {
+						if (fn(*this, node, user_arg) == IterDecision::Break) {
 							return Status::Success;
 						}
 						matched = true;
@@ -481,7 +489,7 @@ Status Context::discover_nodes(
 				if (auto str = res->get<String>()) {
 					for (size_t i = 0; i < id_count; ++i) {
 						if (ids[i] == *str) {
-							if (fn(*this, node, user_arg)) {
+							if (fn(*this, node, user_arg) == IterDecision::Break) {
 								return Status::Success;
 							}
 							break;
@@ -494,7 +502,7 @@ Status Context::discover_nodes(
 						if ((str = element->get<String>())) {
 							for (size_t j = 0; j < id_count; ++j) {
 								if (ids[j] == *str) {
-									if (fn(*this, node, user_arg)) {
+									if (fn(*this, node, user_arg) == IterDecision::Break) {
 										return Status::Success;
 									}
 									matched = true;
@@ -512,6 +520,33 @@ Status Context::discover_nodes(
 			else if (status != Status::MethodNotFound) {
 				return status;
 			}
+		}
+
+		for (size_t i = 0; i < node->child_count; ++i) {
+			if (!stack.push(node->children[i])) {
+				return Status::NoMemory;
+			}
+		}
+	}
+
+	return Status::Success;
+}
+
+Status Context::iterate_nodes(NamespaceNode* start, IterDecision (*fn)(Context&, NamespaceNode*, void*), void* user_arg) {
+	if (!start) {
+		start = root;
+	}
+
+	SmallVec<NamespaceNode*, 8> stack;
+	if (!stack.push(start)) {
+		return Status::NoMemory;
+	}
+
+	while (!stack.is_empty()) {
+		auto node = stack.pop();
+
+		if (fn(*this, node, user_arg) == IterDecision::Break) {
+			return Status::Success;
 		}
 
 		for (size_t i = 0; i < node->child_count; ++i) {

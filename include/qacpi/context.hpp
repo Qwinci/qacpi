@@ -57,6 +57,11 @@ namespace qacpi {
 		return static_cast<int>(lhs) <= static_cast<int>(rhs);
 	}
 
+	enum class IterDecision {
+		Continue,
+		Break
+	};
+
 	struct Context {
 		constexpr Context(uint8_t revision, LogLevel log_level) : revision {revision}, log_level {log_level} {}
 
@@ -74,26 +79,42 @@ namespace qacpi {
 		void register_address_space_handler(RegionSpaceHandler* handler);
 		void deregister_address_space_handler(RegionSpaceHandler* handler);
 
+		Status iterate_nodes(
+			NamespaceNode* start,
+			IterDecision (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
+			void* user_arg);
+
+		template<typename F> requires requires (F f, Context& ctx, NamespaceNode* node) {
+			{f(ctx, node)} -> same_as<IterDecision>;
+		}
+		Status iterate_nodes(NamespaceNode* start, F f) {
+			return iterate_nodes(start, &node_visit_helper<F>, &f);
+		}
+
 		Status discover_nodes(
 			NamespaceNode* start,
 			const EisaId* ids,
 			size_t id_count,
-			bool (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
+			IterDecision (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
 			void* user_arg);
 
 		Status discover_nodes(
 			NamespaceNode* start,
 			const StringView* ids,
 			size_t id_count,
-			bool (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
+			IterDecision (*fn)(Context& ctx, NamespaceNode* node, void* user_arg),
 			void* user_arg);
 
-		template<typename F>
+		template<typename F> requires requires (F f, Context& ctx, NamespaceNode* node) {
+			{f(ctx, node)} -> same_as<IterDecision>;
+		}
 		Status discover_nodes(NamespaceNode* start, const EisaId* ids, size_t id_count, F f) {
 			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
 		}
 
-		template<typename F>
+		template<typename F> requires requires (F f, Context& ctx, NamespaceNode* node) {
+			{f(ctx, node)} -> same_as<IterDecision>;
+		}
 		Status discover_nodes(NamespaceNode* start, const StringView* ids, size_t id_count, F f) {
 			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
 		}
@@ -124,7 +145,7 @@ namespace qacpi {
 		};
 
 		template<typename F>
-		static bool node_visit_helper(Context& ctx, NamespaceNode* node, void* user_arg) {
+		static IterDecision node_visit_helper(Context& ctx, NamespaceNode* node, void* user_arg) {
 			auto& fn = *static_cast<remove_reference_t<F>*>(user_arg);
 			return fn(ctx, node);
 		}
