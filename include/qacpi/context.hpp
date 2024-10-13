@@ -134,7 +134,7 @@ namespace qacpi {
 			return create_or_find_node(start, nullptr, name, SearchFlags::Search);
 		}
 
-		ObjectRef get_package_element(ObjectRef& pkg, uint32_t index);
+		ObjectRef get_pkg_element(ObjectRef& pkg, uint32_t index);
 
 		constexpr NamespaceNode* get_root() {
 			return root;

@@ -761,7 +761,7 @@ NamespaceNode* Context::create_or_find_node(NamespaceNode* start, void* method_f
 	}
 }
 
-ObjectRef Context::get_package_element(ObjectRef& pkg_obj, uint32_t index) {
+ObjectRef Context::get_pkg_element(ObjectRef& pkg_obj, uint32_t index) {
 	Package* pkg;
 	if (!pkg_obj || !(pkg = pkg_obj->get<Package>()) || index >= pkg->data->element_count) {
 		return ObjectRef::empty();
