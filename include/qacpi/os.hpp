@@ -43,4 +43,4 @@ namespace qacpi {
 	struct NamespaceNode;
 }
 
-void qacpi_os_notify(qacpi::NamespaceNode* node, uint64_t value);
+void qacpi_os_notify(void* notify_arg, qacpi::NamespaceNode* node, uint64_t value);

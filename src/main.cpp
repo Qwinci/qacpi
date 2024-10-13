@@ -186,7 +186,7 @@ qacpi::Status qacpi_os_pci_write(qacpi::PciAddress address, uint64_t offset, uin
 	return qacpi::Status::Success;
 }
 
-void qacpi_os_notify(qacpi::NamespaceNode* node, uint64_t value) {
+void qacpi_os_notify(void*, qacpi::NamespaceNode* node, uint64_t value) {
 	auto path = node->absolute_path();
 	std::cerr << "qacpi_os_notify " << path.data() << ' ' << value << '\n';
 }

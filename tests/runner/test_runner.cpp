@@ -175,7 +175,7 @@ private:
     ExprT callback;
 };
 
-void qacpi_os_notify(qacpi::NamespaceNode* node, uint64_t value) {
+void qacpi_os_notify(void*, qacpi::NamespaceNode* node, uint64_t value) {
 	auto path = node->absolute_path();
 	std::cout << "Received a notification from " << path.data() << " "
 	          << std::hex << value << std::endl;

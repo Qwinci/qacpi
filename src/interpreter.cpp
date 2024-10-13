@@ -3395,7 +3395,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return status;
 			}
 
-			qacpi_os_notify(object->node, value->get_unsafe<uint64_t>());
+			qacpi_os_notify(context->notify_arg, object->node, value->get_unsafe<uint64_t>());
 
 			break;
 		}

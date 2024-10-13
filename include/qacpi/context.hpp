@@ -112,6 +112,8 @@ namespace qacpi {
 			return root;
 		}
 
+		void* notify_arg {};
+
 	private:
 		friend struct Interpreter;
 		friend struct OpRegion;
