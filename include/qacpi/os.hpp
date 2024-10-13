@@ -4,9 +4,6 @@
 #include "status.hpp"
 #include "utils.hpp"
 
-extern "C" void* memcpy(void* __restrict dest, const void* __restrict src, size_t size);
-extern "C" void* memset(void* dest, int ch, size_t size);
-
 bool qacpi_os_mutex_create(void** handle);
 void qacpi_os_mutex_destroy(void* handle);
 qacpi::Status qacpi_os_mutex_lock(void* handle, uint16_t timeout_ms);

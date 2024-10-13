@@ -1,4 +1,5 @@
 #include "qacpi/object.hpp"
+#include "internal.hpp"
 
 namespace qacpi {
 	Buffer::Buffer(Buffer&& other) noexcept {

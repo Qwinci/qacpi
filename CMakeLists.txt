@@ -27,26 +27,8 @@ target_link_options(qacpi PRIVATE
 )
 target_include_directories(qacpi PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated" include)
 
-set(TESTS
-	tests/types.dsl
-)
-
-execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/tests")
-execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
-
-foreach(TEST IN LISTS TESTS)
-	get_filename_component(OUTPUT_NAME "${TEST}" NAME_WE)
-	add_custom_command(OUTPUT "tests/${OUTPUT_NAME}.aml"
-		COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/iasl_helper.py"
-			iasl -oa -vw 6074 -vw 6141
-			-p "${CMAKE_CURRENT_BINARY_DIR}/tests/${OUTPUT_NAME}" "${CMAKE_CURRENT_SOURCE_DIR}/${TEST}"
-		DEPENDS "${TEST}"
-	)
-	list(APPEND TEST_AMLS "tests/${OUTPUT_NAME}.aml")
-endforeach()
-
 add_custom_command(OUTPUT "generated/osi.hpp"
-	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tests/iasl_helper.py"
+	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/iasl_helper.py"
 		iasl -p "${CMAKE_CURRENT_BINARY_DIR}/osi.aml" "${CMAKE_CURRENT_SOURCE_DIR}/osi.dsl"
 	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/gen_osi.py"
 		"${CMAKE_CURRENT_BINARY_DIR}/osi.aml" "${CMAKE_CURRENT_BINARY_DIR}/generated/osi.hpp"
@@ -59,8 +41,3 @@ add_custom_target(update_generated
 	COMMAND ${CMAKE_COMMAND} -E copy_if_different "generated/osi.hpp" "${CMAKE_SOURCE_DIR}/generated/osi.hpp"
 )
 
-add_custom_target(build_amls
-	DEPENDS ${TEST_AMLS}
-)
-
-add_dependencies(qacpi build_amls)

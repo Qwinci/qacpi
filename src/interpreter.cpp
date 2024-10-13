@@ -2,6 +2,7 @@
 #include "aml_ops.hpp"
 #include "qacpi/ns.hpp"
 #include "logger.hpp"
+#include "internal.hpp"
 
 using namespace qacpi;
 

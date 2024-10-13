@@ -1,0 +1,20 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build-and-run-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install tools & libraries (Ubuntu)
+        run: |
+          sudo apt update
+          sudo apt install python3 python3-pytest acpica-tools cmake g++-multilib
+          # https://github.com/actions/runner-images/issues/9491#issuecomment-1989718917
+          sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Run tests (64-bit)
+        run: python3 ${{ github.workspace }}/tests/run_tests.py --bitness=64
+      - name: Run tests (32-bit)
+        run: python3 ${{ github.workspace }}/tests/run_tests.py --bitness=32
+

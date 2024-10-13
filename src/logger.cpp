@@ -1,5 +1,6 @@
 #include "logger.hpp"
 #include "qacpi/os.hpp"
+#include "internal.hpp"
 
 static constexpr const char* CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXZ";
 

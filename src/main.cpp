@@ -216,7 +216,7 @@ int main() {
 	auto* aml = data.data() + sizeof(SdtHeader);
 	uint32_t aml_size = hdr->length - sizeof(SdtHeader);
 
-	qacpi::Context ctx {hdr->revision};
+	qacpi::Context ctx {hdr->revision, qacpi::LogLevel::Verbose};
 	if (auto status = ctx.init(); status != qacpi::Status::Success) {
 		return 1;
 	}

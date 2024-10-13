@@ -1,5 +1,6 @@
 #include "qacpi/resources.hpp"
 #include "qacpi/os.hpp"
+#include "internal.hpp"
 
 qacpi::Status qacpi::resource_parse(const uint8_t* data, size_t size, size_t& offset, Resource& res) {
 	if (offset + 2 > size) {

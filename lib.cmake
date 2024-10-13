@@ -27,9 +27,11 @@ target_include_directories(qacpi_lib PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
 execute_process(COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
 
 add_custom_command(OUTPUT "generated/osi.hpp"
-	COMMAND "${CMAKE_CURRENT_LIST_DIR}/tests/iasl_helper.py"
+	COMMAND "${CMAKE_CURRENT_LIST_DIR}/iasl_helper.py"
 	iasl -p "${CMAKE_CURRENT_BINARY_DIR}/osi.aml" "${CMAKE_CURRENT_LIST_DIR}/osi.dsl"
 	COMMAND "${CMAKE_CURRENT_LIST_DIR}/gen_osi.py"
 	"${CMAKE_CURRENT_BINARY_DIR}/osi.aml" "${CMAKE_CURRENT_BINARY_DIR}/generated/osi.hpp"
 	DEPENDS "${CMAKE_CURRENT_LIST_DIR}/osi.dsl"
 )
+
+add_library(qacpi::qacpi ALIAS qacpi_lib)

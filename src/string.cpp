@@ -1,5 +1,6 @@
 #include "qacpi/string.hpp"
 #include "qacpi/os.hpp"
+#include "internal.hpp"
 
 namespace qacpi {
 	String::String(qacpi::String&& other) noexcept {

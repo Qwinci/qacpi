@@ -97,4 +97,7 @@ int main() {
 	});
 }
 
+## Credits
+- [uACPI](https://github.com/UltraOS/uACPI) for tests and general reference
+
 ```
