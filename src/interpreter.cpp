@@ -2859,6 +2859,11 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		case OpHandler::Return:
 		{
 			auto value = pop_and_unwrap_obj();
+			if (auto field = value->get<Field>()) {
+				if (auto status = read_field(field, value); status != Status::Success) {
+					return status;
+				}
+			}
 
 			if (method_frames.is_empty()) {
 				return Status::InvalidAml;

@@ -303,6 +303,10 @@ void Context::register_address_space_handler(RegionSpaceHandler* handler) {
 	while (reg_region) {
 		auto& region = reg_region->object->get_unsafe<OpRegion>();
 		if (region.space == handler->id) {
+			if (log_level >= LogLevel::Verbose) {
+				LOG << "qacpi: running late reg for " << region.node->name() << endlog;
+			}
+
 			auto status = region.run_reg();
 			if (status == Status::Success) {
 				if (reg_region->prev_link) {
@@ -320,6 +324,9 @@ void Context::register_address_space_handler(RegionSpaceHandler* handler) {
 			else {
 				reg_region = reg_region->next_link;
 			}
+		}
+		else {
+			reg_region = reg_region->next_link;
 		}
 	}
 }
@@ -598,13 +605,16 @@ NamespaceNode* Context::create_or_find_node(NamespaceNode* start, void* method_f
 	}
 
 	while (true) {
-		if (size < 4) {
+		if (!size) {
 			return nullptr;
 		}
 
-		auto* segment = ptr;
-		ptr += 4;
-		size -= 4;
+		char segment[5] = "____";
+		for (int i = 0; i < 4 && size && *ptr != '.'; ++i) {
+			segment[i] = *ptr;
+			++ptr;
+			--size;
+		}
 
 	again:
 		bool found = false;

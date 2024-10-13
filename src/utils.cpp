@@ -137,9 +137,8 @@ namespace qacpi {
 			else {
 				uint64_t real_addr = addr.address + index * access_size;
 
-				auto space = static_cast<qacpi::RegionSpace>(addr.space_id);
 				Status status;
-				if (space == qacpi::RegionSpace::SystemMemory) {
+				if (addr.space_id == qacpi::RegionSpace::SystemMemory) {
 					status = qacpi_os_mmio_read(real_addr, access_size, data);
 				}
 				else {
@@ -187,9 +186,8 @@ namespace qacpi {
 			else {
 				uint64_t real_addr = addr.address + index * access_size;
 
-				auto space = static_cast<qacpi::RegionSpace>(addr.space_id);
 				Status status;
-				if (space == qacpi::RegionSpace::SystemMemory) {
+				if (addr.space_id == qacpi::RegionSpace::SystemMemory) {
 					status = qacpi_os_mmio_write(real_addr, access_size, data);
 				}
 				else {
