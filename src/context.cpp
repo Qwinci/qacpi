@@ -149,7 +149,7 @@ Status Context::load_table(const uint8_t* aml, uint32_t size) {
 Status Context::evaluate(StringView name, ObjectRef& res, ObjectRef* args, int arg_count) {
 	auto* node = create_or_find_node(root, nullptr, name, SearchFlags::Search);
 	if (!node) {
-		return Status::MethodNotFound;
+		return Status::NotFound;
 	}
 	if (!node->object) {
 		LOG << "qacpi internal error in Context::evaluate, node->object is null" << endlog;
@@ -178,12 +178,12 @@ Status Context::evaluate(StringView name, ObjectRef& res, ObjectRef* args, int a
 
 Status Context::evaluate(NamespaceNode* node, StringView name, ObjectRef& res, ObjectRef* args, int arg_count) {
 	if (!node) {
-		return Status::MethodNotFound;
+		return Status::NotFound;
 	}
 
 	node = node->get_child(name);
 	if (!node) {
-		return Status::MethodNotFound;
+		return Status::NotFound;
 	}
 
 	if (!node->object) {
@@ -352,7 +352,7 @@ Status Context::init_namespace() {
 				examine_children = true;
 			}
 		}
-		else if (status != Status::MethodNotFound) {
+		else if (status != Status::NotFound) {
 			LOG << "qacpi: error while running _STA for " << node->name() << endlog;
 		}
 		else {
@@ -364,7 +364,7 @@ Status Context::init_namespace() {
 
 		if (run_ini) {
 			status = evaluate(node, "_INI", res);
-			if (status != Status::Success && status != Status::MethodNotFound) {
+			if (status != Status::Success && status != Status::NotFound) {
 				LOG << "qacpi: error while running _INI for " << node->name() << endlog;
 			}
 		}
@@ -469,7 +469,7 @@ Status Context::discover_nodes(
 				hid_id = EisaId::decode(*integer);
 			}
 		}
-		else if (status != Status::MethodNotFound) {
+		else if (status != Status::NotFound) {
 			return status;
 		}
 
@@ -516,7 +516,7 @@ Status Context::discover_nodes(
 				cid_id = {};
 			}
 		}
-		else if (status != Status::MethodNotFound) {
+		else if (status != Status::NotFound) {
 			return status;
 		}
 
@@ -576,7 +576,7 @@ Status Context::discover_nodes(
 				}
 			}
 		}
-		else if (status != Status::MethodNotFound) {
+		else if (status != Status::NotFound) {
 			return status;
 		}
 
@@ -614,7 +614,7 @@ Status Context::discover_nodes(
 					}
 				}
 			}
-			else if (status != Status::MethodNotFound) {
+			else if (status != Status::NotFound) {
 				return status;
 			}
 		}

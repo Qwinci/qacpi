@@ -9,7 +9,6 @@ namespace qacpi {
 		InvalidType,
 		NoMemory,
 		NotFound,
-		MethodNotFound,
 		TimeOut,
 		Unsupported,
 		InternalError,

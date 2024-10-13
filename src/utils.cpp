@@ -222,8 +222,6 @@ namespace qacpi {
 				return "not enough memory";
 			case Status::NotFound:
 				return "object not found";
-			case Status::MethodNotFound:
-				return "method not found";
 			case Status::TimeOut:
 				return "operation timed out";
 			case Status::Unsupported:

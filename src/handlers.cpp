@@ -21,7 +21,7 @@ namespace qacpi {
 					hid_id = EisaId::decode(*integer);
 				}
 			}
-			else if (status != Status::MethodNotFound) {
+			else if (status != Status::NotFound) {
 				return status;
 			}
 
@@ -54,7 +54,7 @@ namespace qacpi {
 						}
 					}
 				}
-				else if (status != Status::MethodNotFound) {
+				else if (status != Status::NotFound) {
 					return status;
 				}
 				else {
@@ -66,7 +66,7 @@ namespace qacpi {
 			if (hid_id == PCIE_ID || hid_id == PCI_ID || cid_id == PCI_ID || cid_id == PCIE_ID) {
 				uint16_t seg;
 				status = ctx->evaluate(node, "_SEG", res);
-				if (status == Status::MethodNotFound) {
+				if (status == Status::NotFound) {
 					seg = 0;
 				}
 				else if (status != Status::Success) {
@@ -78,7 +78,7 @@ namespace qacpi {
 
 				uint8_t bus;
 				status = ctx->evaluate(node, "_BBN", res);
-				if (status == Status::MethodNotFound) {
+				if (status == Status::NotFound) {
 					bus = 0;
 				}
 				else if (status != Status::Success) {
@@ -91,7 +91,7 @@ namespace qacpi {
 				uint16_t device;
 				uint16_t function;
 				status = ctx->evaluate(node, "_ADR", res);
-				if (status == Status::MethodNotFound) {
+				if (status == Status::NotFound) {
 					device = 0;
 					function = 0;
 				}

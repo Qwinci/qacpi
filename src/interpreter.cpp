@@ -3011,7 +3011,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					}
 
 					auto status = node->object->get_unsafe<OpRegion>().run_reg();
-					if (status == Status::MethodNotFound) {
+					if (status == Status::NotFound) {
 						if (method_frames.is_empty()) {
 							node->prev_link = nullptr;
 							node->next_link = context->regions_to_reg;
