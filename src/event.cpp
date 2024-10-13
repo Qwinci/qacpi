@@ -185,6 +185,9 @@ namespace qacpi::events {
 		void* sci_handle {};
 		FixedEventHandler fixed_handlers[static_cast<int>(FixedEvent::Rtc) + 1] {};
 		uint32_t sci_irq {};
+		uint32_t smi_cmd {};
+		uint8_t acpi_enable {};
+		uint8_t acpi_disable {};
 		bool fixed_power_button_supported {};
 		bool fixed_sleep_button_supported {};
 
@@ -476,6 +479,9 @@ namespace qacpi::events {
 		}
 
 		inner->sci_irq = fadt->sci_int;
+		inner->smi_cmd = fadt->smi_cmd;
+		inner->acpi_enable = fadt->acpi_enable;
+		inner->acpi_disable = fadt->acpi_disable;
 		inner->fixed_power_button_supported = !(fadt->flags & 1 << 4);
 		inner->fixed_sleep_button_supported = !(fadt->flags & 1 << 5);
 
@@ -785,6 +791,88 @@ namespace qacpi::events {
 		ctx.evaluate("_SI._SST", res, &arg, 1);
 	}
 
+	namespace {
+		constexpr uint16_t EVT_STS_WAK_STS_BIT = 1 << 15;
+
+		constexpr uint16_t CNT_SCI_EN_BIT = 1 << 0;
+		constexpr uint16_t CNT_SLP_TYP_SHIFT = 10;
+		constexpr uint16_t CNT_SLP_TYP_MASK = 0b111 << 10;
+		constexpr uint16_t CNT_SLP_EN_BIT = 1 << 13;
+	}
+
+	Status Context::enable_acpi_mode(bool enable) {
+		uint64_t pm1_cnt = 0;
+		auto status = read_from_addr(inner->pm1a_cnt_blk, pm1_cnt);
+		if (status != Status::Success) {
+			return status;
+		}
+		uint64_t pm1b_cnt = 0;
+		status = read_from_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+		pm1_cnt |= pm1b_cnt;
+
+		if (enable) {
+			if (!(pm1_cnt & CNT_SCI_EN_BIT)) {
+				status = qacpi_os_io_write(inner->smi_cmd, 1, inner->acpi_enable);
+				if (status != Status::Success) {
+					return status;
+				}
+
+				uint64_t wait_time = 0;
+
+				while (!(pm1_cnt & CNT_SCI_EN_BIT)) {
+					status = read_from_addr(inner->pm1a_cnt_blk, pm1_cnt);
+					if (status != Status::Success) {
+						return status;
+					}
+					status = read_from_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+					if (status != Status::Success && status != Status::NotFound) {
+						return status;
+					}
+					pm1_cnt |= pm1b_cnt;
+
+					qacpi_os_stall(1000);
+					++wait_time;
+					if (wait_time == 2 * 1000) {
+						return Status::TimeOut;
+					}
+				}
+			}
+		}
+		else {
+			if (pm1_cnt & CNT_SCI_EN_BIT) {
+				status = qacpi_os_io_write(inner->smi_cmd, 1, inner->acpi_disable);
+				if (status != Status::Success) {
+					return status;
+				}
+
+				uint64_t wait_time = 0;
+
+				while (pm1_cnt & CNT_SCI_EN_BIT) {
+					status = read_from_addr(inner->pm1a_cnt_blk, pm1_cnt);
+					if (status != Status::Success) {
+						return status;
+					}
+					status = read_from_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+					if (status != Status::Success && status != Status::NotFound) {
+						return status;
+					}
+					pm1_cnt |= pm1b_cnt;
+
+					qacpi_os_stall(1000);
+					++wait_time;
+					if (wait_time == 2 * 1000) {
+						return Status::TimeOut;
+					}
+				}
+			}
+		}
+
+		return Status::Success;
+	}
+
 	Status Context::prepare_for_sleep_state(qacpi::Context& ctx, SleepState state) {
 		qacpi::ObjectRef arg {static_cast<uint64_t>(state)};
 		if (!arg) {
@@ -820,15 +908,6 @@ namespace qacpi::events {
 		}
 		evaluate_sst(ctx, sst);
 		return Status::Success;
-	}
-
-	namespace {
-		constexpr uint16_t EVT_STS_WAK_STS_BIT = 1 << 15;
-
-		constexpr uint16_t CNT_SCI_EN_BIT = 1 << 0;
-		constexpr uint16_t CNT_SLP_TYP_SHIFT = 10;
-		constexpr uint16_t CNT_SLP_TYP_MASK = 0b111 << 10;
-		constexpr uint16_t CNT_SLP_EN_BIT = 1 << 13;
 	}
 
 	Status Context::enter_sleep_state(SleepState state) {

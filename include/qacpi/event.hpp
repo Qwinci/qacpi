@@ -47,6 +47,8 @@ namespace qacpi::events {
 
 		void on_notify(qacpi::NamespaceNode* node, uint64_t value);
 
+		Status enable_acpi_mode(bool enable);
+
 		Status prepare_for_sleep_state(qacpi::Context& ctx, SleepState state);
 		Status enter_sleep_state(SleepState state);
 
