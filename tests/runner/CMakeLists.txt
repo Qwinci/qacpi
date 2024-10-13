@@ -22,7 +22,7 @@ add_executable(
     interface_impl.cpp
     resource_tests.cpp
 )
-target_link_libraries(test-runner PRIVATE qacpi::qacpi)
+target_link_libraries(test-runner PRIVATE qacpi::qacpi qacpi::events)
 
 if (MSVC)
     # Address sanitizer on MSVC depends on a dynamic library that is not present in

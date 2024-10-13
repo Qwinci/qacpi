@@ -44,3 +44,8 @@ namespace qacpi {
 }
 
 void qacpi_os_notify(void* notify_arg, qacpi::NamespaceNode* node, uint64_t value);
+
+// optional api only required if event support is used
+qacpi::Status qacpi_os_install_sci_handler(uint32_t irq, bool (*handler)(void* arg), void* arg, void** handle);
+void qacpi_os_uninstall_sci_handler(uint32_t irq, void* handle);
+qacpi::Status qacpi_os_queue_work(qacpi::Status (*fn)(void* arg), void* arg);

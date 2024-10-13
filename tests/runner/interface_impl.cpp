@@ -302,3 +302,13 @@ void qacpi_os_fatal(uint8_t type, uint16_t code, uint64_t arg) {
 	          << " arg: " << std::hex << arg << std::endl;
 }
 
+qacpi::Status qacpi_os_install_sci_handler(uint32_t, bool (*)(void*), void*, void**) {
+	return qacpi::Status::Success;
+}
+
+void qacpi_os_uninstall_sci_handler(uint32_t, void*) {}
+
+qacpi::Status qacpi_os_queue_work(qacpi::Status (*)(void*), void*) {
+	return qacpi::Status::Success;
+}
+
