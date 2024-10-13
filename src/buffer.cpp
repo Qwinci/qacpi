@@ -3,11 +3,16 @@
 
 namespace qacpi {
 	Buffer::Buffer(Buffer&& other) noexcept {
-		data = move(other.data);
+		_data = move(other._data);
+	}
+
+	Buffer& Buffer::operator=(Buffer&& other) noexcept {
+		_data = move(other._data);
+		return *this;
 	}
 
 	bool Buffer::init(const void* new_data, uint32_t new_size) {
-		if (!data) {
+		if (!_data) {
 			return false;
 		}
 
@@ -17,14 +22,14 @@ namespace qacpi {
 				return false;
 			}
 			memcpy(ptr, new_data, new_size);
-			data->data = ptr;
-			data->size = new_size;
+			_data->data = ptr;
+			_data->size = new_size;
 		}
 		return true;
 	}
 
 	bool Buffer::init_with_size(uint32_t new_size) {
-		if (!data) {
+		if (!_data) {
 			return false;
 		}
 
@@ -34,14 +39,14 @@ namespace qacpi {
 				return false;
 			}
 			memset(ptr, 0, new_size);
-			data->data = ptr;
-			data->size = new_size;
+			_data->data = ptr;
+			_data->size = new_size;
 		}
 		return true;
 	}
 
 	bool Buffer::clone(const Buffer& other) {
-		return init(other.data->data, other.data->size);
+		return init(other._data->data, other._data->size);
 	}
 
 	Buffer::Data::~Data() {

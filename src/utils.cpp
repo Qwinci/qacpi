@@ -216,6 +216,8 @@ namespace qacpi {
 				return "invalid aml";
 			case Status::InvalidArgs:
 				return "invalid arguments";
+			case Status::InvalidType:
+				return "invalid type";
 			case Status::NoMemory:
 				return "not enough memory";
 			case Status::NotFound:

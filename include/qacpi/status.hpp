@@ -6,6 +6,7 @@ namespace qacpi {
 		UnexpectedEof,
 		InvalidAml,
 		InvalidArgs,
+		InvalidType,
 		NoMemory,
 		NotFound,
 		MethodNotFound,

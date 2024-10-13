@@ -401,27 +401,27 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 	};
 
 	if (auto buf = real->get<Buffer>()) {
-		if (find_type(ObjectType::Integer) && buf->data->size) {
-			uint32_t to_copy = QACPI_MIN(buf->data->size, int_size);
+		if (find_type(ObjectType::Integer) && buf->size()) {
+			uint32_t to_copy = QACPI_MIN(buf->size(), int_size);
 			uint64_t value = 0;
-			memcpy(&value, buf->data->data, to_copy);
+			memcpy(&value, buf->data(), to_copy);
 			res->data = value;
 			return Status::Success;
 		}
 		else if (find_type(ObjectType::String)) {
 			String str;
-			if (!str.init_with_size(buf->data->size * 2 + (buf->data->size ? (buf->data->size - 1) : 0))) {
+			if (!str.init_with_size(buf->size() * 2 + (buf->size() ? (buf->size() - 1) : 0))) {
 				return Status::NoMemory;
 			}
 
 			auto* data = str.data();
-			for (uint32_t i = 0; i < buf->data->size; ++i) {
-				uint8_t byte = buf->data->data[i];
+			for (uint32_t i = 0; i < buf->size(); ++i) {
+				uint8_t byte = buf->data()[i];
 
 				data[1] = CHARS[byte % 16];
 				data[0] = CHARS[byte / 16 % 16];
 				data += 2;
-				if (i != buf->data->size - 1) {
+				if (i != buf->size() - 1) {
 					*data++ = ' ';
 				}
 			}
@@ -436,7 +436,7 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 		if (find_type(ObjectType::Integer) && buf_field->byte_size <= int_size) {
 			uint32_t to_copy = QACPI_MIN(buf_field->byte_size, int_size);
 			uint64_t value = 0;
-			memcpy(&value, owner.data->data + buf_field->byte_offset, to_copy);
+			memcpy(&value, owner.data() + buf_field->byte_offset, to_copy);
 			if (buf_field->bit_offset || buf_field->bit_size) {
 				uint64_t size_mask = (uint64_t {1} << buf_field->total_bit_size) - 1;
 				value >>= buf_field->bit_offset;
@@ -451,14 +451,14 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 				return Status::NoMemory;
 			}
 
-			auto* data = buffer.data->data;
+			auto* data = buffer.data();
 			if (buf_field->bit_offset) {
 				auto bit_offset_size = buf_field->bit_offset + buf_field->byte_size * 8;
 				for (uint32_t i = buf_field->bit_offset; i < bit_offset_size; i += 8) {
 					uint8_t shift = i % 8;
-					uint8_t byte = owner.data->data[buf_field->byte_offset + i / 8] >> shift;
-					if (buf_field->byte_offset + i / 8 + 1 < owner.data->size) {
-						byte |= (owner.data->data[buf_field->byte_offset + i / 8 + 1] & ((1 << shift) - 1)) << (8 - shift);
+					uint8_t byte = owner.data()[buf_field->byte_offset + i / 8] >> shift;
+					if (buf_field->byte_offset + i / 8 + 1 < owner.size()) {
+						byte |= (owner.data()[buf_field->byte_offset + i / 8 + 1] & ((1 << shift) - 1)) << (8 - shift);
 					}
 					if (i + 8 >= bit_offset_size && buf_field->bit_size) {
 						byte &= (1 << buf_field->bit_size) - 1;
@@ -469,10 +469,10 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 			}
 			else {
 				for (uint32_t i = 0; i < buf_field->byte_size - 1; ++i) {
-					auto byte = owner.data->data[buf_field->byte_offset + i];
+					auto byte = owner.data()[buf_field->byte_offset + i];
 					*data++ = byte;
 				}
-				auto byte = owner.data->data[buf_field->byte_offset + buf_field->byte_size - 1];
+				auto byte = owner.data()[buf_field->byte_offset + buf_field->byte_size - 1];
 				if (buf_field->bit_size) {
 					byte &= (1 << buf_field->bit_size) - 1;
 				}
@@ -494,9 +494,9 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 				auto bit_offset_size = buf_field->bit_offset + buf_field->byte_size * 8;
 				for (uint32_t i = buf_field->bit_offset; i < bit_offset_size; i += 8) {
 					uint8_t shift = i % 8;
-					uint8_t byte = owner.data->data[buf_field->byte_offset + i / 8] >> shift;
-					if (buf_field->byte_offset + i / 8 + 1 < owner.data->size) {
-						byte |= (owner.data->data[buf_field->byte_offset + i / 8 + 1] & ((1 << shift) - 1)) << (8 - shift);
+					uint8_t byte = owner.data()[buf_field->byte_offset + i / 8] >> shift;
+					if (buf_field->byte_offset + i / 8 + 1 < owner.size()) {
+						byte |= (owner.data()[buf_field->byte_offset + i / 8 + 1] & ((1 << shift) - 1)) << (8 - shift);
 					}
 					if (i + 8 >= bit_offset_size && buf_field->bit_size) {
 						byte &= (1 << buf_field->bit_size) - 1;
@@ -512,7 +512,7 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 			}
 			else {
 				for (uint32_t i = 0; i < buf_field->byte_size - 1; ++i) {
-					auto byte = owner.data->data[buf_field->byte_offset + i];
+					auto byte = owner.data()[buf_field->byte_offset + i];
 					data[1] = CHARS[byte % 16];
 					data[0] = CHARS[byte / 16 % 16];
 					data += 2;
@@ -520,7 +520,7 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 						*data++ = ' ';
 					}
 				}
-				auto byte = owner.data->data[buf_field->byte_offset + buf_field->byte_size - 1];
+				auto byte = owner.data()[buf_field->byte_offset + buf_field->byte_size - 1];
 				if (buf_field->bit_size) {
 					byte &= (1 << buf_field->bit_size) - 1;
 				}
@@ -591,9 +591,9 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 		uint64_t value = *integer;
 		if (find_type(ObjectType::Buffer)) {
 			if ((buf = res->get<Buffer>())) {
-				uint32_t copy = QACPI_MIN(buf->data->size, int_size);
-				memcpy(buf->data->data, integer, copy);
-				memset(buf->data->data + copy, 0, buf->data->size - copy);
+				uint32_t copy = QACPI_MIN(buf->size(), int_size);
+				memcpy(buf->data(), integer, copy);
+				memset(buf->data() + copy, 0, buf->size() - copy);
 			}
 			else {
 				Buffer buffer;
@@ -726,7 +726,7 @@ Status Interpreter::store_to_target(ObjectRef target, ObjectRef value) {
 
 			uint64_t old = 0;
 			if (buf_field->bit_offset || buf_field->bit_size) {
-				memcpy(&old, owner.data->data + buf_field->byte_offset, to_copy);
+				memcpy(&old, owner.data() + buf_field->byte_offset, to_copy);
 			}
 
 			if (buf_field->bit_offset || buf_field->bit_size) {
@@ -738,7 +738,7 @@ Status Interpreter::store_to_target(ObjectRef target, ObjectRef value) {
 				old = converted->get_unsafe<uint64_t>();
 			}
 
-			memcpy(owner.data->data + buf_field->byte_offset, &old, to_copy);
+			memcpy(owner.data() + buf_field->byte_offset, &old, to_copy);
 		}
 		else {
 			LOG << "qacpi: BufferField writes greater than 8 bytes are not implemented" << endlog;
@@ -785,9 +785,9 @@ Status Interpreter::store_to_target(ObjectRef target, ObjectRef value) {
 				return status;
 			}
 			auto& other_buf = obj->get_unsafe<Buffer>();
-			auto to_copy = QACPI_MIN(buf->data->size, other_buf.data->size);
-			memcpy(buf->data->data, other_buf.data->data, to_copy);
-			memset(buf->data->data + to_copy, 0, buf->data->size - to_copy);
+			auto to_copy = QACPI_MIN(buf->size(), other_buf.size());
+			memcpy(buf->data(), other_buf.data(), to_copy);
+			memset(buf->data() + to_copy, 0, buf->size() - to_copy);
 			return Status::Success;
 		}
 
@@ -1279,8 +1279,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				if (!buffer.init_with_size(int_size * 2)) {
 					return Status::NoMemory;
 				}
-				memcpy(buffer.data->data, lhs_int, int_size);
-				memcpy(buffer.data->data + int_size, &rhs_int, int_size);
+				memcpy(buffer.data(), lhs_int, int_size);
+				memcpy(buffer.data() + int_size, &rhs_int, int_size);
 				value = ObjectRef {move(buffer)};
 				if (!value) {
 					return Status::NoMemory;
@@ -1331,11 +1331,11 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 				auto& rhs_buf = rhs->get_unsafe<Buffer>();
 				Buffer buffer;
-				if (!buffer.init_with_size(lhs_buffer->data->size + rhs_buf.data->size)) {
+				if (!buffer.init_with_size(lhs_buffer->size() + rhs_buf.size())) {
 					return Status::NoMemory;
 				}
-				memcpy(buffer.data->data, lhs_buffer->data->data, lhs_buffer->data->size);
-				memcpy(buffer.data->data + lhs_buffer->data->size, rhs_buf.data->data, rhs_buf.data->size);
+				memcpy(buffer.data(), lhs_buffer->data(), lhs_buffer->size());
+				memcpy(buffer.data() + lhs_buffer->size(), rhs_buf.data(), rhs_buf.size());
 				value = ObjectRef {move(buffer)};
 				if (!value) {
 					return Status::NoMemory;
@@ -1712,7 +1712,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				if (!buf.init_with_size(real_size)) {
 					return Status::NoMemory;
 				}
-				memcpy(buf.data->data, frame.ptr, init_len);
+				memcpy(buf.data(), frame.ptr, init_len);
 				obj->data = move(buf);
 				if (!objects.push(move(obj))) {
 					return Status::NoMemory;
@@ -1780,7 +1780,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (auto buffer = src->get<Buffer>()) {
-				if (index >= buffer->data->size) {
+				if (index >= buffer->size()) {
 					return Status::InvalidAml;
 				}
 
@@ -2017,7 +2017,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			uint32_t num_bits = num_bits_value->get_unsafe<uint64_t>();
 			uint32_t bit_index = bit_index_value->get_unsafe<uint64_t>();
 
-			if ((bit_index + num_bits + 7) / 8 > src->get_unsafe<Buffer>().data->size) {
+			if ((bit_index + num_bits + 7) / 8 > src->get_unsafe<Buffer>().size()) {
 				return Status::InvalidAml;
 			}
 
@@ -3101,7 +3101,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					break;
 			}
 
-			if (byte_offset + byte_size > src->get_unsafe<Buffer>().data->size) {
+			if (byte_offset + byte_size > src->get_unsafe<Buffer>().size()) {
 				return Status::InvalidAml;
 			}
 
@@ -3318,7 +3318,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 			else if (auto buffer = converted->get<Buffer>()) {
 				uint64_t int_value = 0;
-				memcpy(&int_value, buffer->data->data, QACPI_MIN(int_size, buffer->data->size));
+				memcpy(&int_value, buffer->data(), QACPI_MIN(int_size, buffer->size()));
 				res->data = int_value;
 			}
 			else {
@@ -3416,7 +3416,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				}
 
 				if (auto buffer = name->get<Buffer>()) {
-					obj->data = uint64_t {buffer->data->size};
+					obj->data = uint64_t {buffer->size()};
 				}
 				else if (auto str = name->get<String>()) {
 					obj->data = uint64_t {str->size()};
@@ -3486,8 +3486,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 			else if (auto buffer = obj->get<Buffer>()) {
 				uint32_t size = 0;
-				for (uint32_t i = 0; i < buffer->data->size; ++i) {
-					auto byte = buffer->data->data[i];
+				for (uint32_t i = 0; i < buffer->size(); ++i) {
+					auto byte = buffer->data()[i];
 					if (byte < 10) {
 						++size;
 					}
@@ -3499,15 +3499,15 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					}
 				}
 
-				size += buffer->data->size ? (buffer->data->size - 1) : 0;
+				size += buffer->size() ? (buffer->size() - 1) : 0;
 
 				if (!res.init_with_size(size)) {
 					return Status::NoMemory;
 				}
 
 				auto* data = res.data();
-				for (uint32_t i = 0; i < buffer->data->size; ++i) {
-					auto byte = buffer->data->data[i];
+				for (uint32_t i = 0; i < buffer->size(); ++i) {
+					auto byte = buffer->data()[i];
 					char buf[3];
 					char* ptr = buf + 3;
 					do {
@@ -3516,7 +3516,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					} while (byte);
 					memcpy(data, ptr, (buf + 3) - ptr);
 					data += (buf + 3) - ptr;
-					if (i != buffer->data->size - 1) {
+					if (i != buffer->size() - 1) {
 						*data++ = ',';
 					}
 				}
@@ -3567,22 +3567,22 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				}
 			}
 			else if (auto buffer = obj->get<Buffer>()) {
-				uint32_t size = buffer->data->size * 4;
-				size += buffer->data->size ? (buffer->data->size - 1) : 0;
+				uint32_t size = buffer->size() * 4;
+				size += buffer->size() ? (buffer->size() - 1) : 0;
 
 				if (!res.init_with_size(size)) {
 					return Status::NoMemory;
 				}
 
 				auto* data = res.data();
-				for (uint32_t i = 0; i < buffer->data->size; ++i) {
-					auto byte = buffer->data->data[i];
+				for (uint32_t i = 0; i < buffer->size(); ++i) {
+					auto byte = buffer->data()[i];
 					data[0] = '0';
 					data[1] = 'x';
 					data[2] = CHARS[byte / 16 % 16];
 					data[3] = CHARS[byte % 16];
 					data += 4;
-					if (i != buffer->data->size - 1) {
+					if (i != buffer->size() - 1) {
 						*data++ = ',';
 					}
 				}

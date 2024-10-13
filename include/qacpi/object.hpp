@@ -48,11 +48,22 @@ namespace qacpi {
 		constexpr Buffer(const Buffer&) = delete;
 		constexpr Buffer& operator=(const Buffer&) = delete;
 
+		Buffer& operator=(Buffer&& other) noexcept;
+
 		bool init(const void* new_data, uint32_t new_size);
 		bool init_with_size(uint32_t new_size);
 
 		bool clone(const Buffer& other);
 
+		[[nodiscard]] inline uint8_t* data() const {
+			return _data->data;
+		}
+
+		[[nodiscard]] inline size_t size() const {
+			return _data->size;
+		}
+
+	private:
 		struct Data {
 			~Data();
 
@@ -60,7 +71,7 @@ namespace qacpi {
 			uint32_t size {};
 		};
 
-		SharedPtr<Data> data {};
+		SharedPtr<Data> _data {};
 	};
 
 	enum class ObjectType {

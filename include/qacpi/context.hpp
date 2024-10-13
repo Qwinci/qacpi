@@ -74,6 +74,13 @@ namespace qacpi {
 		Status evaluate(StringView name, ObjectRef& res, ObjectRef* args = nullptr, int arg_count = 0);
 		Status evaluate(NamespaceNode* node, StringView name, ObjectRef& res, ObjectRef* args = nullptr, int arg_count = 0);
 
+		Status evaluate_int(StringView name, uint64_t& res, ObjectRef* args = nullptr, int arg_count = 0);
+		Status evaluate_int(NamespaceNode* node, StringView name, uint64_t& res, ObjectRef* args = nullptr, int arg_count = 0);
+		Status evaluate_package(StringView name, ObjectRef& res, ObjectRef* args = nullptr, int arg_count = 0);
+		Status evaluate_package(NamespaceNode* node, StringView name, ObjectRef& res, ObjectRef* args = nullptr, int arg_count = 0);
+		Status evaluate_buffer(StringView name, Buffer& res, ObjectRef* args = nullptr, int arg_count = 0);
+		Status evaluate_buffer(NamespaceNode* node, StringView name, Buffer& res, ObjectRef* args = nullptr, int arg_count = 0);
+
 		Status init_namespace();
 
 		void register_address_space_handler(RegionSpaceHandler* handler);

@@ -210,6 +210,96 @@ Status Context::evaluate(NamespaceNode* node, StringView name, ObjectRef& res, O
 	}
 }
 
+Status Context::evaluate_int(StringView name, uint64_t& res, ObjectRef* args, int arg_count) {
+	auto obj = qacpi::ObjectRef::empty();
+	auto status = evaluate(name, obj, args, arg_count);
+	if (status != Status::Success) {
+		return status;
+	}
+	else if (!obj->get<uint64_t>()) {
+		return Status::InvalidType;
+	}
+	else {
+		res = obj->get_unsafe<uint64_t>();
+	}
+	return Status::Success;
+}
+
+Status Context::evaluate_int(NamespaceNode* node, StringView name, uint64_t& res, ObjectRef* args, int arg_count) {
+	auto obj = qacpi::ObjectRef::empty();
+	auto status = evaluate(node, name, obj, args, arg_count);
+	if (status != Status::Success) {
+		return status;
+	}
+	else if (!obj->get<uint64_t>()) {
+		return Status::InvalidType;
+	}
+	else {
+		res = obj->get_unsafe<uint64_t>();
+	}
+	return Status::Success;
+}
+
+Status Context::evaluate_package(StringView name, ObjectRef& res, ObjectRef* args, int arg_count) {
+	auto obj = qacpi::ObjectRef::empty();
+	auto status = evaluate(name, obj, args, arg_count);
+	if (status != Status::Success) {
+		return status;
+	}
+	else if (!obj->get<Package>()) {
+		return Status::InvalidType;
+	}
+	else {
+		res = move(obj);
+	}
+	return Status::Success;
+}
+
+Status Context::evaluate_package(NamespaceNode* node, StringView name, ObjectRef& res, ObjectRef* args, int arg_count) {
+	auto obj = qacpi::ObjectRef::empty();
+	auto status = evaluate(node, name, obj, args, arg_count);
+	if (status != Status::Success) {
+		return status;
+	}
+	else if (!obj->get<Package>()) {
+		return Status::InvalidType;
+	}
+	else {
+		res = move(obj);
+	}
+	return Status::Success;
+}
+
+Status Context::evaluate_buffer(StringView name, Buffer& res, ObjectRef* args, int arg_count) {
+	auto obj = qacpi::ObjectRef::empty();
+	auto status = evaluate(name, obj, args, arg_count);
+	if (status != Status::Success) {
+		return status;
+	}
+	else if (!obj->get<Buffer>()) {
+		return Status::InvalidType;
+	}
+	else {
+		res = move(obj->get_unsafe<Buffer>());
+	}
+	return Status::Success;
+}
+
+Status Context::evaluate_buffer(NamespaceNode* node, StringView name, Buffer& res, ObjectRef* args, int arg_count) {
+	auto obj = qacpi::ObjectRef::empty();
+	auto status = evaluate(node, name, obj, args, arg_count);
+	if (status != Status::Success) {
+		return status;
+	}
+	else if (!obj->get<Buffer>()) {
+		return Status::InvalidType;
+	}
+	else {
+		res = move(obj->get_unsafe<Buffer>());
+	}
+	return Status::Success;
+}
+
 static constexpr uint32_t DEVICE_PRESENT = 1 << 0;
 static constexpr uint32_t DEVICE_FUNCTIONING = 1 << 3;
 
