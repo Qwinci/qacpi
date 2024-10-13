@@ -68,6 +68,15 @@ Status Context::init() {
 		return status;
 	}
 
+	ObjectRef si_obj;
+	if (!si_obj) {
+		return Status::NoMemory;
+	}
+	si_obj->data = Device {};
+	if (auto status = create_predefined_node("_SI_", move(si_obj)); status != Status::Success) {
+		return status;
+	}
+
 	ObjectRef gpe_obj;
 	if (!gpe_obj) {
 		return Status::NoMemory;

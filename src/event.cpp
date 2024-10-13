@@ -176,6 +176,8 @@ namespace qacpi::events {
 
 	struct Context::Inner {
 		GpeBlock gpe_blocks[2] {};
+		Address pm1a_cnt_blk {};
+		Address pm1b_cnt_blk {};
 		Address pm1a_evt_sts {};
 		Address pm1a_evt_en {};
 		Address pm1b_evt_sts {};
@@ -300,7 +302,7 @@ namespace qacpi::events {
 				pm1_evt_sts |= value;
 			}
 
-			if (pm1_evt_sts & 0b111 << 8) {
+			if (pm1_evt_sts & (0b111 << 8 | 1)) {
 				for (auto event : ALL_EVENTS) {
 					if (pm1_evt_sts & 1 << static_cast<int>(event)) {
 						auto& fixed_event = fixed_handlers[static_cast<int>(event)];
@@ -311,7 +313,7 @@ namespace qacpi::events {
 					}
 				}
 
-				uint64_t value = pm1_evt_sts & 0b111 << 8;
+				uint64_t value = pm1_evt_sts & (0b111 << 8 | 1);
 				if (write_to_addr(pm1a_evt_sts, value) != Status::Success) {
 					return true;
 				}
@@ -413,6 +415,8 @@ namespace qacpi::events {
 		Address pm1a_evt_addr = get_addr_from_fadt(fadt, &Fadt::x_pm1a_evt_blk, &Fadt::pm1a_evt_blk, fadt->pm1_evt_len);
 		Address pm1b_evt_addr = get_addr_from_fadt(fadt, &Fadt::x_pm1b_evt_blk, &Fadt::pm1b_evt_blk, fadt->pm1_evt_len);
 
+		inner->pm1a_cnt_blk = get_addr_from_fadt(fadt, &Fadt::x_pm1a_cnt_blk, &Fadt::pm1a_cnt_blk, fadt->pm1_cnt_len);
+		inner->pm1b_cnt_blk = get_addr_from_fadt(fadt, &Fadt::x_pm1b_cnt_blk, &Fadt::pm1b_cnt_blk, fadt->pm1_cnt_len);
 		inner->pm1a_evt_sts = pm1a_evt_addr;
 		inner->pm1a_evt_sts.reg_bit_width /= 2;
 		inner->pm1a_evt_en = pm1a_evt_addr;
@@ -718,6 +722,255 @@ namespace qacpi::events {
 				break;
 			}
 		}
+	}
+
+	static Status get_sleep_values(qacpi::Context& ctx, SleepState state, uint8_t& slp_typa, uint8_t& slp_typb) {
+		char s_path[] = "_S0";
+		s_path[2] = static_cast<char>('0' + static_cast<int>(state));
+
+		auto ret = qacpi::ObjectRef::empty();
+		auto status = ctx.evaluate_package(s_path, ret);
+		if (status != Status::Success) {
+			return status;
+		}
+
+		auto& pkg = ret->get_unsafe<qacpi::Package>();
+		switch (pkg.size()) {
+			case 0:
+				return Status::InvalidAml;
+			case 1:
+			{
+				auto obj = ctx.get_pkg_element(ret, 0);
+				if (!obj->get<uint64_t>()) {
+					return Status::InvalidAml;
+				}
+				auto value = obj->get_unsafe<uint64_t>();
+
+				slp_typa = value;
+				slp_typb = value >> 8;
+				break;
+			}
+			default:
+			{
+				auto first_obj = ctx.get_pkg_element(ret, 0);
+				auto second_obj = ctx.get_pkg_element(ret, 1);
+				if (!first_obj->get<uint64_t>() || !second_obj->get<uint64_t>()) {
+					return Status::InvalidAml;
+				}
+
+				slp_typa = first_obj->get_unsafe<uint64_t>();
+				slp_typb = second_obj->get_unsafe<uint64_t>();
+				break;
+			}
+		}
+
+		return Status::Success;
+	}
+
+	enum class Sst {
+		No = 0,
+		Working = 1,
+		Waking = 2,
+		Sleeping = 3,
+		Hibernate = 4
+	};
+
+	static void evaluate_sst(qacpi::Context& ctx, Sst state) {
+		ObjectRef arg {static_cast<uint64_t>(state)};
+		if (!arg) {
+			return;
+		}
+
+		auto res = qacpi::ObjectRef::empty();
+		ctx.evaluate("_SI._SST", res, &arg, 1);
+	}
+
+	Status Context::prepare_for_sleep_state(qacpi::Context& ctx, SleepState state) {
+		qacpi::ObjectRef arg {static_cast<uint64_t>(state)};
+		if (!arg) {
+			return Status::NoMemory;
+		}
+
+		auto ret = qacpi::ObjectRef::empty();
+		auto status = ctx.evaluate("_PTS", ret, &arg, 1);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+
+		status = get_sleep_values(ctx, state, slp_typa, slp_typb);
+		if (status != Status::Success) {
+			return status;
+		}
+
+		get_sleep_values(ctx, static_cast<SleepState>(0), slp_typa_s0, slp_typb_s0);
+
+		Sst sst {};
+		switch (state) {
+			case SleepState::S1:
+			case SleepState::S2:
+			case SleepState::S3:
+				sst = Sst::Sleeping;
+				break;
+			case SleepState::S4:
+				sst = Sst::Hibernate;
+				break;
+			case SleepState::S5:
+				sst = Sst::No;
+				break;
+		}
+		evaluate_sst(ctx, sst);
+		return Status::Success;
+	}
+
+	namespace {
+		constexpr uint16_t EVT_STS_WAK_STS_BIT = 1 << 15;
+
+		constexpr uint16_t CNT_SCI_EN_BIT = 1 << 0;
+		constexpr uint16_t CNT_SLP_TYP_SHIFT = 10;
+		constexpr uint16_t CNT_SLP_TYP_MASK = 0b111 << 10;
+		constexpr uint16_t CNT_SLP_EN_BIT = 1 << 13;
+	}
+
+	Status Context::enter_sleep_state(SleepState state) {
+		auto status = write_to_addr(inner->pm1a_evt_sts, EVT_STS_WAK_STS_BIT);
+		if (status != Status::Success) {
+			return status;
+		}
+		status = write_to_addr(inner->pm1b_evt_sts, EVT_STS_WAK_STS_BIT);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+
+		for (auto& block : inner->gpe_blocks) {
+			for (auto& reg : block.regs) {
+				status = reg.clear_all_sts();
+				if (status != Status::Success) {
+					return status;
+				}
+			}
+		}
+
+		uint64_t value = 1 | 1 << 4 | 1 << 5 | 0b111 << 8 | 1 << 14;
+		status = write_to_addr(inner->pm1a_evt_sts, value);
+		if (status != Status::Success) {
+			return status;
+		}
+		status = qacpi::write_to_addr(inner->pm1b_evt_sts, value);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+
+		uint64_t pm1_cnt = 0;
+		status = read_from_addr(inner->pm1a_cnt_blk, pm1_cnt);
+		if (status != Status::Success) {
+			return status;
+		}
+		uint64_t pm1b_cnt = 0;
+		status = read_from_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+		pm1_cnt |= pm1b_cnt;
+
+		pm1_cnt &= ~CNT_SLP_TYP_MASK;
+		pm1_cnt &= ~CNT_SLP_EN_BIT;
+
+		auto pm1a_cnt = pm1_cnt;
+		pm1b_cnt = pm1_cnt;
+
+		pm1a_cnt |= slp_typa << CNT_SLP_TYP_SHIFT;
+		pm1b_cnt |= slp_typb << CNT_SLP_TYP_SHIFT;
+
+		status = write_to_addr(inner->pm1a_cnt_blk, pm1a_cnt);
+		if (status != Status::Success) {
+			return status;
+		}
+		status = write_to_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+
+		pm1a_cnt |= CNT_SLP_EN_BIT;
+		pm1b_cnt |= CNT_SLP_EN_BIT;
+
+		status = write_to_addr(inner->pm1a_cnt_blk, pm1a_cnt);
+		if (status != Status::Success) {
+			return status;
+		}
+		status = write_to_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+		if (status != Status::Success && status != Status::NotFound) {
+			return status;
+		}
+
+		if (state > SleepState::S3) {
+			uint64_t wait_time = 0;
+			while (wait_time < (10 * 1000)) {
+				qacpi_os_stall(1000);
+				++wait_time;
+			}
+
+			status = write_to_addr(inner->pm1a_cnt_blk, pm1a_cnt);
+			if (status != Status::Success) {
+				return status;
+			}
+			status = write_to_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+			if (status != Status::Success && status != Status::NotFound) {
+				return status;
+			}
+
+			return Status::TimeOut;
+		}
+
+		return Status::Success;
+	}
+
+	Status Context::prepare_for_wake() {
+		if (slp_typa_s0 != 0xFF) {
+			uint64_t pm1_cnt = 0;
+			auto status = read_from_addr(inner->pm1a_cnt_blk, pm1_cnt);
+			if (status != Status::Success) {
+				return Status::Success;
+			}
+			uint64_t pm1b_cnt = 0;
+			status = read_from_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+			if (status != Status::Success && status != Status::NotFound) {
+				return Status::Success;
+			}
+			pm1_cnt |= pm1b_cnt;
+
+			pm1_cnt &= ~CNT_SLP_TYP_MASK;
+			pm1_cnt &= ~CNT_SLP_EN_BIT;
+
+			auto pm1a_cnt = pm1_cnt;
+			pm1b_cnt = pm1_cnt;
+
+			pm1a_cnt |= slp_typa_s0 << CNT_SLP_TYP_SHIFT;
+			pm1b_cnt |= slp_typb_s0 << CNT_SLP_TYP_SHIFT;
+
+			write_to_addr(inner->pm1a_cnt_blk, pm1a_cnt);
+			write_to_addr(inner->pm1b_cnt_blk, pm1b_cnt);
+		}
+
+		return Status::Success;
+	}
+
+	Status Context::wake_from_state(qacpi::Context& ctx, SleepState state) {
+		evaluate_sst(ctx, Sst::Waking);
+
+		qacpi::ObjectRef arg {static_cast<uint64_t>(state)};
+		if (!arg) {
+			return Status::NoMemory;
+		}
+
+		auto ret = qacpi::ObjectRef::empty();
+		ctx.evaluate("_WAK", ret, &arg, 1);
+
+		write_to_addr(inner->pm1a_evt_sts, EVT_STS_WAK_STS_BIT);
+		write_to_addr(inner->pm1b_evt_sts, EVT_STS_WAK_STS_BIT);
+
+		evaluate_sst(ctx, Sst::Working);
+
+		return Status::Success;
 	}
 
 	static Status acpi_aml_gpe_work(void* arg) {

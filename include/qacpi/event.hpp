@@ -20,6 +20,14 @@ namespace qacpi::events {
 		Rtc = 10
 	};
 
+	enum class SleepState {
+		S1 = 1,
+		S2,
+		S3,
+		S4,
+		S5
+	};
+
 	struct Context {
 		Status init(const void* fadt_ptr);
 
@@ -39,6 +47,12 @@ namespace qacpi::events {
 
 		void on_notify(qacpi::NamespaceNode* node, uint64_t value);
 
+		Status prepare_for_sleep_state(qacpi::Context& ctx, SleepState state);
+		Status enter_sleep_state(SleepState state);
+
+		Status prepare_for_wake();
+		Status wake_from_state(qacpi::Context& ctx, SleepState state);
+
 		~Context();
 
 	private:
@@ -49,5 +63,11 @@ namespace qacpi::events {
 
 		struct NotifyHandler;
 		NotifyHandler* notify_handlers {};
+
+		uint8_t slp_typa_s0 {0xFF};
+		uint8_t slp_typb_s0 {0xFF};
+
+		uint8_t slp_typa {};
+		uint8_t slp_typb {};
 	};
 }
