@@ -55,6 +55,8 @@ namespace qacpi::events {
 		Status prepare_for_wake();
 		Status wake_from_state(qacpi::Context& ctx, SleepState state);
 
+		Status reboot();
+
 		~Context();
 
 	private:

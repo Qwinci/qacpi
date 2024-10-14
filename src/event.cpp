@@ -182,14 +182,17 @@ namespace qacpi::events {
 		Address pm1a_evt_en {};
 		Address pm1b_evt_sts {};
 		Address pm1b_evt_en {};
+		Address reset_reg {};
 		void* sci_handle {};
 		FixedEventHandler fixed_handlers[static_cast<int>(FixedEvent::Rtc) + 1] {};
 		uint32_t sci_irq {};
 		uint32_t smi_cmd {};
 		uint8_t acpi_enable {};
 		uint8_t acpi_disable {};
+		uint8_t reset_value {};
 		bool fixed_power_button_supported {};
 		bool fixed_sleep_button_supported {};
+		bool reset_supported {};
 
 		bool get_reg(uint32_t index, GpeRegister*& reg) {
 			if (!gpe_blocks[1].regs.is_empty() && index >= gpe_blocks[1].base) {
@@ -434,6 +437,9 @@ namespace qacpi::events {
 			inner->pm1b_evt_en.reg_bit_width /= 2;
 		}
 
+		inner->reset_reg = fadt->reset_reg;
+		inner->reset_value = fadt->reset_value;
+
 		auto create_gpe_regs = [](const Address& addr, GpeBlock& block, uint8_t len) {
 			if (!addr.address) {
 				return;
@@ -484,6 +490,7 @@ namespace qacpi::events {
 		inner->acpi_disable = fadt->acpi_disable;
 		inner->fixed_power_button_supported = !(fadt->flags & 1 << 4);
 		inner->fixed_sleep_button_supported = !(fadt->flags & 1 << 5);
+		inner->reset_supported = fadt->flags & 1 << 10;
 
 		return Status::Success;
 	}
@@ -1050,6 +1057,49 @@ namespace qacpi::events {
 		evaluate_sst(ctx, Sst::Working);
 
 		return Status::Success;
+	}
+
+	Status Context::reboot() {
+		auto reg = inner->reset_reg;
+
+		if (!inner->reset_supported || !reg.address) {
+			return Status::Unsupported;
+		}
+
+		auto value = inner->reset_value;
+
+		Status status;
+		switch (reg.space_id) {
+			case RegionSpace::SystemIo:
+				status = qacpi_os_io_write(reg.address, 1, value);
+				break;
+			case RegionSpace::PciConfig:
+			{
+				qacpi::PciAddress addr {
+					.segment = 0,
+					.bus = 0,
+					.device = static_cast<uint8_t>(reg.address >> 32 & 0xFF),
+					.function = static_cast<uint8_t>(reg.address >> 16 & 0xFF)
+				};
+				status = qacpi_os_pci_write(addr, reg.address & 0xFFFF, 1, value);
+				break;
+			}
+			default:
+				status = write_to_addr(reg, value);
+				break;
+		}
+
+		if (status != Status::Success) {
+			return status;
+		}
+
+		uint64_t wait_time = 0;
+		while (wait_time < (10 * 1000)) {
+			qacpi_os_stall(1000);
+			++wait_time;
+		}
+
+		return Status::TimeOut;
 	}
 
 	static Status acpi_aml_gpe_work(void* arg) {

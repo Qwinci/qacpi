@@ -88,8 +88,8 @@ namespace qacpi {
 					bus = res->get_unsafe<uint64_t>() & 0xFF;
 				}
 
-				uint16_t device;
-				uint16_t function;
+				uint8_t device;
+				uint8_t function;
 				status = ctx->evaluate(node, "_ADR", res);
 				if (status == Status::NotFound) {
 					device = 0;

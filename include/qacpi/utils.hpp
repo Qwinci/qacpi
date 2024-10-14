@@ -39,8 +39,8 @@ namespace qacpi {
 	struct PciAddress {
 		uint16_t segment;
 		uint8_t bus;
-		uint16_t device;
-		uint16_t function;
+		uint8_t device;
+		uint8_t function;
 	};
 
 	enum class RegionSpace : uint8_t {
