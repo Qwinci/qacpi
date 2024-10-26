@@ -48,7 +48,7 @@ namespace qacpi {
 
 			NamespaceNode* node_link {};
 			Mutex* mutex_link {};
-			Mutex* serialize_mutex {};
+			SharedPtr<Mutex> serialize_mutex {SharedPtr<Mutex>::empty()};
 			ObjectRef args[7] {
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),

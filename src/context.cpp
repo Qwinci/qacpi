@@ -50,7 +50,7 @@ Status Context::init() {
 	}
 	osi_obj->data = Method {
 		.aml = OSI_DATA,
-		.mutex {},
+		.mutex {SharedPtr<Mutex>::empty()},
 		.size = OSI_SIZE,
 		.arg_count = 1,
 		.serialized = false

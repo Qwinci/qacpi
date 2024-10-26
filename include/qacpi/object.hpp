@@ -13,20 +13,27 @@ namespace qacpi {
 	struct Device {};
 
 	struct Method {
-		const uint8_t* aml;
-		Mutex mutex;
-		uint32_t size;
-		uint8_t arg_count;
-		bool serialized;
+		const uint8_t* aml {};
+		SharedPtr<Mutex> mutex {SharedPtr<Mutex>::empty()};
+		uint32_t size {};
+		uint8_t arg_count {};
+		bool serialized {};
 
 		bool clone(const Method& other) {
+			if (other.serialized) {
+				mutex = SharedPtr<Mutex> {};
+				if (!mutex) {
+					return false;
+				}
+				if (!mutex->init()) {
+					return false;
+				}
+			}
+
 			aml = other.aml;
 			size = other.size;
 			arg_count = other.arg_count;
 			serialized = other.serialized;
-			if (serialized && !mutex.init()) {
-				return false;
-			}
 			return true;
 		}
 

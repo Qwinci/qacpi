@@ -81,11 +81,11 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 		}
 
 		if (method->serialized) {
-			if (method->mutex.is_owned_by_thread()) {
-				++method->mutex.recursion;
+			if (method->mutex->is_owned_by_thread()) {
+				++method->mutex->recursion;
 			}
 			else {
-				method->mutex.lock(0xFFFF);
+				method->mutex->lock(0xFFFF);
 			}
 		}
 
@@ -115,7 +115,7 @@ Status Interpreter::invoke_method(NamespaceNode* node, ObjectRef& res, ObjectRef
 		}
 
 		method_frame->node_link = method_node;
-		method_frame->serialize_mutex = &method->mutex;
+		method_frame->serialize_mutex = method->mutex;
 		for (int i = 0; i < method->arg_count; ++i) {
 			ObjectRef arg;
 			if (!arg) {
@@ -298,11 +298,11 @@ Status Interpreter::handle_name(Interpreter::Frame& frame, bool need_result, boo
 		}
 
 		if (method->serialized) {
-			if (method->mutex.is_owned_by_thread()) {
-				++method->mutex.recursion;
+			if (method->mutex->is_owned_by_thread()) {
+				++method->mutex->recursion;
 			}
 			else {
-				method->mutex.lock(0xFFFF);
+				method->mutex->lock(0xFFFF);
 			}
 		}
 
@@ -671,7 +671,10 @@ static void debug_output(ObjectRef value) {
 		[](String& str) {
 			LOG << "aml debug: " << str << endlog;
 		},
-		[](auto&) {
+		[](uint64_t value) {
+			LOG << "aml debug: " << value << endlog;
+		},
+		[](auto& value) {
 
 		}
 	});
@@ -1467,10 +1470,15 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			bool serialized = flags >> 3 & 1;
 			uint8_t sync_level = flags >> 4;
-			Mutex mutex;
-			mutex.sync_level = sync_level;
+
+			SharedPtr<Mutex> mutex {SharedPtr<Mutex>::empty()};
 			if (serialized) {
-				if (!mutex.init()) {
+				mutex = SharedPtr<Mutex> {};
+				if (!mutex) {
+					return Status::NoMemory;
+				}
+				mutex->sync_level = sync_level;
+				if (!mutex->init()) {
 					return Status::NoMemory;
 				}
 			}
@@ -1517,7 +1525,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			method_frame->node_link = node;
-			method_frame->serialize_mutex = &args.method->mutex;
+			method_frame->serialize_mutex = args.method->mutex;
 			for (int i = args.method->arg_count; i > 0; --i) {
 				ObjectRef arg_wrapper;
 				if (!arg_wrapper) {
@@ -3158,8 +3166,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto region = node->object;
 			if (region->get<OpRegion>()) {
-				for (size_t i = 0; i < list.nodes.size(); ++i) {
-					auto field_node = list.nodes[i];
+				for (auto field_node : list.nodes) {
 					auto& obj = field_node->object->get_unsafe<Field>();
 					auto copy = region;
 					obj.owner_index = move(copy);
@@ -3647,8 +3654,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto index_field = index_node->object;
 			auto data_field = data_node->object;
-			for (size_t i = 0; i < list.nodes.size(); ++i) {
-				auto field_node = list.nodes[i];
+			for (auto field_node : list.nodes) {
 				auto& obj = field_node->object->get_unsafe<Field>();
 				auto index_copy = index_field;
 				auto data_copy = data_field;
@@ -3696,8 +3702,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto region = region_node->object;
 			auto bank = bank_node->object;
 			if (region->get<OpRegion>()) {
-				for (size_t i = 0; i < list.nodes.size(); ++i) {
-					auto field_node = list.nodes[i];
+				for (auto field_node : list.nodes) {
 					auto& obj = field_node->object->get_unsafe<Field>();
 					auto owner_copy = region;
 					auto bank_copy = bank;
@@ -4516,13 +4521,13 @@ Interpreter::MethodFrame::MethodFrame(Interpreter::MethodFrame&& other) noexcept
 	}
 	node_link = other.node_link;
 	mutex_link = other.mutex_link;
-	serialize_mutex = other.serialize_mutex;
+	serialize_mutex = move(other.serialize_mutex);
 	other.moved = true;
 }
 
 Interpreter::MethodFrame::~MethodFrame() {
 	if (!moved) {
-		if (serialize_mutex->handle) {
+		if (serialize_mutex && serialize_mutex->handle) {
 			if (serialize_mutex->recursion) {
 				--serialize_mutex->recursion;
 			}
