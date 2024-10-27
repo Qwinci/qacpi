@@ -64,7 +64,7 @@ namespace {
 
 	struct AmlGpeEvent {
 		GpeRegister* reg {};
-		qacpi::Context& ctx;
+		qacpi::Context* ctx;
 		uint8_t index {};
 		events::GpeTrigger trigger {};
 		StringView method_name {};
@@ -74,6 +74,8 @@ namespace {
 		Vector<GpeRegister> regs;
 		Vector<GpeEvent> enabled_events;
 		Vector<AmlGpeEvent> aml_events;
+		Vector<GpeEvent> wake_events;
+		Vector<AmlGpeEvent> aml_wake_events;
 		uint8_t base;
 	};
 	
@@ -224,7 +226,7 @@ namespace qacpi::events {
 			if (!gpe_blocks[1].regs.is_empty() && index >= gpe_blocks[1].base) {
 				if (!gpe_blocks[1].aml_events.push(AmlGpeEvent {
 					.reg = reg,
-					.ctx = ctx,
+					.ctx = &ctx,
 					.index = static_cast<uint8_t>(index % 8),
 					.trigger = trigger,
 					.method_name = method_name
@@ -235,7 +237,7 @@ namespace qacpi::events {
 			else {
 				if (!gpe_blocks[0].aml_events.push(AmlGpeEvent {
 					.reg = reg,
-					.ctx = ctx,
+					.ctx = &ctx,
 					.index = static_cast<uint8_t>(index % 8),
 					.trigger = trigger,
 					.method_name = method_name
@@ -678,6 +680,68 @@ namespace qacpi::events {
 		return Status::InvalidArgs;
 	}
 
+	Status Context::enable_gpe_for_wake(uint32_t index) {
+		GpeRegister* reg;
+		if (!inner->get_reg(index, reg)) {
+			return Status::InvalidArgs;
+		}
+
+		index = index % 8;
+
+		for (auto& block : inner->gpe_blocks) {
+			for (auto& event : block.enabled_events) {
+				if (event.reg == reg && event.index == index) {
+					if (!block.wake_events.push(event)) {
+						return Status::NoMemory;
+					}
+					return Status::Success;
+				}
+			}
+
+			for (auto& event : block.aml_events) {
+				if (event.reg == reg && event.index == index) {
+					if (!block.aml_wake_events.push(event)) {
+						return Status::NoMemory;
+					}
+					return Status::Success;
+				}
+			}
+		}
+
+		return Status::InvalidArgs;
+	}
+
+	Status Context::disable_gpe_for_wake(uint32_t index) {
+		GpeRegister* reg;
+		if (!inner->get_reg(index, reg)) {
+			return Status::InvalidArgs;
+		}
+
+		index = index % 8;
+
+		for (auto& block : inner->gpe_blocks) {
+			for (size_t i = 0; i < block.wake_events.size(); ++i) {
+				auto& event = block.wake_events[i];
+
+				if (event.reg == reg && event.index == index) {
+					block.wake_events.remove(i);
+					return Status::Success;
+				}
+			}
+
+			for (size_t i = 0; i < block.aml_wake_events.size(); ++i) {
+				auto& event = block.aml_wake_events[i];
+
+				if (event.reg == reg && event.index == index) {
+					block.aml_wake_events.remove(i);
+					return Status::Success;
+				}
+			}
+		}
+
+		return Status::InvalidArgs;
+	}
+
 	struct Context::NotifyHandler {
 		NotifyHandler* prev {};
 		NotifyHandler* next {};
@@ -929,10 +993,23 @@ namespace qacpi::events {
 
 		for (auto& block : inner->gpe_blocks) {
 			for (auto& reg : block.regs) {
+				status = reg.disable_all();
+				if (status != Status::Success) {
+					return status;
+				}
+
 				status = reg.clear_all_sts();
 				if (status != Status::Success) {
 					return status;
 				}
+			}
+
+			for (auto& event : block.wake_events) {
+				event.reg->enable(event.index);
+			}
+
+			for (auto& event : block.aml_wake_events) {
+				event.reg->enable(event.index);
 			}
 		}
 
@@ -1043,6 +1120,28 @@ namespace qacpi::events {
 	Status Context::wake_from_state(qacpi::Context& ctx, SleepState state) {
 		evaluate_sst(ctx, Sst::Waking);
 
+		for (auto& block : inner->gpe_blocks) {
+			for (auto& reg : block.regs) {
+				auto status = reg.disable_all();
+				if (status != Status::Success) {
+					return status;
+				}
+
+				status = reg.clear_all_sts();
+				if (status != Status::Success) {
+					return status;
+				}
+			}
+
+			for (auto& event : block.enabled_events) {
+				event.reg->enable(event.index);
+			}
+
+			for (auto& event : block.aml_events) {
+				event.reg->enable(event.index);
+			}
+		}
+
 		qacpi::ObjectRef arg {static_cast<uint64_t>(state)};
 		if (!arg) {
 			return Status::NoMemory;
@@ -1105,10 +1204,10 @@ namespace qacpi::events {
 	static Status acpi_aml_gpe_work(void* arg) {
 		auto* event = static_cast<AmlGpeEvent*>(arg);
 
-		auto gpe = event->ctx.find_node(nullptr, "_GPE");
+		auto gpe = event->ctx->find_node(nullptr, "_GPE");
 
 		auto res = qacpi::ObjectRef::empty();
-		auto status = event->ctx.evaluate(gpe, event->method_name, res);
+		auto status = event->ctx->evaluate(gpe, event->method_name, res);
 
 		if (event->trigger == GpeTrigger::Level) {
 			event->reg->clear_sts(event->index);

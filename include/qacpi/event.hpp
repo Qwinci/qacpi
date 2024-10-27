@@ -39,6 +39,9 @@ namespace qacpi::events {
 		Status enable_gpe(uint32_t index, GpeTrigger trigger, void (*handler)(void* arg), void* arg);
 		Status disable_gpe(uint32_t index);
 
+		Status enable_gpe_for_wake(uint32_t index);
+		Status disable_gpe_for_wake(uint32_t index);
+
 		Status install_notify_handler(
 			qacpi::NamespaceNode* node,
 			void (*handler)(void* arg, NamespaceNode* node, uint64_t value),
