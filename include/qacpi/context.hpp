@@ -126,12 +126,16 @@ namespace qacpi {
 			return discover_nodes(start, ids, id_count, &node_visit_helper<F>, &f);
 		}
 
-		inline NamespaceNode* find_node(NamespaceNode* start, StringView name) {
+		inline NamespaceNode* find_node(NamespaceNode* start, StringView name, bool only_children) {
 			if (!start) {
 				start = root;
 			}
 
-			return create_or_find_node(start, nullptr, name, SearchFlags::Search);
+			return create_or_find_node(
+				start,
+				nullptr,
+				name,
+				only_children ? SearchFlags::OnlyChildren : SearchFlags::Search);
 		}
 
 		ObjectRef get_pkg_element(ObjectRef& pkg, uint32_t index);
@@ -148,7 +152,8 @@ namespace qacpi {
 
 		enum class SearchFlags {
 			Create,
-			Search
+			Search,
+			OnlyChildren
 		};
 
 		template<typename F>

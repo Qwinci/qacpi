@@ -513,7 +513,7 @@ namespace qacpi::events {
 	}
 
 	Status Context::enable_events_from_ns(qacpi::Context& ctx) {
-		auto gpe_node = ctx.find_node(nullptr, "_GPE");
+		auto gpe_node = ctx.find_node(nullptr, "_GPE", false);
 		if (!gpe_node) {
 			return Status::InternalError;
 		}
@@ -1204,7 +1204,7 @@ namespace qacpi::events {
 	static Status acpi_aml_gpe_work(void* arg) {
 		auto* event = static_cast<AmlGpeEvent*>(arg);
 
-		auto gpe = event->ctx->find_node(nullptr, "_GPE");
+		auto gpe = event->ctx->find_node(nullptr, "_GPE", false);
 
 		auto res = qacpi::ObjectRef::empty();
 		auto status = event->ctx->evaluate(gpe, event->method_name, res);

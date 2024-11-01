@@ -732,6 +732,9 @@ NamespaceNode* Context::create_or_find_node(NamespaceNode* start, void* method_f
 			++ptr;
 			--size;
 		}
+		else if (flags == SearchFlags::OnlyChildren) {
+			return nullptr;
+		}
 		else if (flags == SearchFlags::Search) {
 			node = node->parent;
 			if (!node) {
@@ -799,8 +802,21 @@ ObjectRef Context::get_pkg_element(ObjectRef& pkg_obj, uint32_t index) {
 		elem = node->object;
 	}
 
+	if (auto field = elem->get<Field>()) {
+		qacpi::ObjectRef dest;
+		if (!dest) {
+			return dest;
+		}
+		auto status = Interpreter::read_field(field, dest);
+		if (status != Status::Success) {
+			LOG << "qacpi: failed to read field in Context::get_pkg_element: " << status_to_str(status) << endlog;
+			return qacpi::ObjectRef::empty();
+		}
+		return dest;
+	}
+
 	if (!elem->node) {
 		elem->node = pkg_obj->node;
 	}
-	return pkg->data->elements[index];
+	return elem;
 }
