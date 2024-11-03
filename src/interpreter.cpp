@@ -257,10 +257,6 @@ Status Interpreter::handle_name(Interpreter::Frame& frame, bool need_result, boo
 		return status;
 	}
 
-	if (str.size() < 4) {
-		return Status::InvalidAml;
-	}
-
 	auto* node = create_or_get_node(str, Context::SearchFlags::Search);
 	if (!node) {
 		if (frame.type == Frame::Package) {

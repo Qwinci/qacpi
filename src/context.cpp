@@ -23,10 +23,18 @@ Status Context::init() {
 		return Status::Success;
 	};
 
+	ObjectRef root_obj;
+	if (!root_obj) {
+		return Status::NoMemory;
+	}
+	root_obj->data = Uninitialized {};
+
 	root = NamespaceNode::create("\0\0\0");
 	if (!root) {
 		return Status::NoMemory;
 	}
+	root_obj->node = root;
+	root->object = move(root_obj);
 	all_nodes = root;
 
 	ObjectRef gl_obj;
