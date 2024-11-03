@@ -5,10 +5,12 @@
 namespace qacpi {
 	String::String(qacpi::String&& other) noexcept {
 		_data = move(other._data);
+		_is_path = other._is_path;
 	}
 
 	String& String::operator=(String&& other) noexcept {
 		_data = move(other._data);
+		_is_path = other._is_path;
 		return *this;
 	}
 
@@ -50,6 +52,7 @@ namespace qacpi {
 	}
 
 	bool String::clone(const String& other) {
+		_is_path = other._is_path;
 		return init(other._data->ptr, other._data->size);
 	}
 }

@@ -39,14 +39,6 @@ namespace qacpi {
 
 	};
 
-	struct Unresolved {
-		String name;
-
-		bool clone(const Unresolved& other) {
-			return name.clone(other.name);
-		}
-	};
-
 	struct Buffer {
 		constexpr Buffer() = default;
 
@@ -97,11 +89,10 @@ namespace qacpi {
 		Processor,
 		ThermalZone,
 		BufferField,
-		Reserved1,
+		Reserved,
 		Debug,
 		Ref,
-		Arg,
-		Unresolved
+		Arg
 	};
 
 	struct PowerResource {
@@ -222,7 +213,7 @@ namespace qacpi {
 			Package, Field, Device, Event,
 			Method, Mutex, OpRegion, PowerResource,
 			Processor, ThermalZone, BufferField,
-			Unresolved, Debug, Ref, NullTarget> data;
+			Debug, Ref, NullTarget> data;
 		NamespaceNode* node {};
 	};
 }

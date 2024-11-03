@@ -42,9 +42,6 @@ static qacpi::ObjectType object_get_type(qacpi::ObjectRef* obj) {
 	else if ((*obj)->get<qacpi::Buffer>()) {
 		return qacpi::ObjectType::Buffer;
 	}
-	else if ((*obj)->get<qacpi::Unresolved>()) {
-		return qacpi::ObjectType::Unresolved;
-	}
 	else if ((*obj)->get<qacpi::Package>()) {
 		return qacpi::ObjectType::Package;
 	}
@@ -100,16 +97,14 @@ static std::string_view object_type_to_str(qacpi::ObjectType type) {
 			return "thermal zone";
 		case qacpi::ObjectType::BufferField:
 			return "buffer field";
-		case qacpi::ObjectType::Reserved1:
-			return "reserved1";
+		case qacpi::ObjectType::Reserved:
+			return "reserved";
 		case qacpi::ObjectType::Debug:
 			return "debug";
 		case qacpi::ObjectType::Ref:
 			return "ref";
 		case qacpi::ObjectType::Arg:
 			return "arg";
-		case qacpi::ObjectType::Unresolved:
-			return "unresolved";
 	}
 	return "";
 }

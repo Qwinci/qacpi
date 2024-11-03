@@ -789,7 +789,7 @@ ObjectRef Context::get_pkg_element(ObjectRef& pkg_obj, uint32_t index) {
 
 	auto& elem = pkg->data->elements[index];
 
-	if (auto unresolved = elem->get<Unresolved>()) {
+	if (auto unresolved = elem->get<String>(); unresolved && unresolved->is_path()) {
 		NamespaceNode* start;
 		if (!pkg_obj->node) {
 			start = root;
@@ -798,7 +798,7 @@ ObjectRef Context::get_pkg_element(ObjectRef& pkg_obj, uint32_t index) {
 			start = pkg_obj->node;
 		}
 
-		auto* node = create_or_find_node(start, nullptr, unresolved->name, Context::SearchFlags::Search);
+		auto* node = create_or_find_node(start, nullptr, *unresolved, Context::SearchFlags::Search);
 		if (!node) {
 			return ObjectRef::empty();
 		}

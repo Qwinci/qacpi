@@ -31,6 +31,14 @@ namespace qacpi {
 			return _data->size;
 		}
 
+		[[nodiscard]] constexpr bool is_path() const {
+			return _is_path;
+		}
+
+		constexpr void mark_as_path() {
+			_is_path = true;
+		}
+
 	private:
 		struct Data {
 			~Data();
@@ -39,5 +47,6 @@ namespace qacpi {
 			size_t size {};
 		};
 		SharedPtr<Data> _data {};
+		bool _is_path {};
 	};
 }

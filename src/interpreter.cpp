@@ -54,8 +54,8 @@ static constexpr OpBlock CALL_BLOCK {
 };
 
 Status Interpreter::resolve_object(ObjectRef& object) {
-	if (auto unresolved = object->get<Unresolved>()) {
-		auto* node = create_or_get_node(unresolved->name, Context::SearchFlags::Search);
+	if (auto unresolved = object->get<String>(); unresolved && unresolved->is_path()) {
+		auto* node = create_or_get_node(*unresolved, Context::SearchFlags::Search);
 		if (!node) {
 			return Status::NotFound;
 		}
@@ -264,7 +264,8 @@ Status Interpreter::handle_name(Interpreter::Frame& frame, bool need_result, boo
 			if (!obj) {
 				return Status::NoMemory;
 			}
-			obj->data = Unresolved {.name {move(str)}};
+			str.mark_as_path();
+			obj->data = move(str);
 			if (!objects.push(move(obj))) {
 				return Status::NoMemory;
 			}
@@ -944,7 +945,8 @@ Status Interpreter::parse_field(FieldList& list, Frame& frame) {
 			if (!obj) {
 				return Status::NoMemory;
 			}
-			obj->data = Unresolved {.name {move(str)}};
+			str.mark_as_path();
+			obj->data = move(str);
 			if (auto status = resolve_object(obj); status != Status::Success) {
 				return status;
 			}
@@ -1209,11 +1211,6 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 						else if constexpr (is_same_v<type, BufferField>) {
 							str = "[Buffer Field]";
 							str_size = sizeof("[Buffer Field]") - 1;
-						}
-						else if constexpr (is_same_v<type, Unresolved>) {
-							LOG << "qacpi: internal error: unresolved object in concat str" << endlog;
-							str = "<unresolved>";
-							str_size = sizeof("<unresolved>") - 1;
 						}
 						else if constexpr (is_same_v<type, Debug>) {
 							str = "[Debug Object]";
@@ -1529,6 +1526,11 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				}
 
 				auto real_arg = pop_and_unwrap_obj();
+				if (auto field = real_arg->get<Field>()) {
+					if (auto status = read_field(field, real_arg); status != Status::Success) {
+						return status;
+					}
+				}
 
 				auto arg = ObjectRef::empty();
 				if (!real_arg->get<String>() && !real_arg->get<Buffer>() && !real_arg->get<Package>()) {
@@ -1826,12 +1828,6 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					return Status::InvalidAml;
 				}
 
-				if (package->data->elements[index]->get<Unresolved>()) {
-					if (auto status = resolve_object(package->data->elements[index]); status != Status::Success) {
-						return status;
-					}
-				}
-
 				auto copy = package->data->elements[index];
 				ref->data = Ref {.type = Ref::RefOf, .inner {move(copy)}};
 			}
@@ -1883,7 +1879,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				if (!obj) {
 					return Status::NoMemory;
 				}
-				obj->data = Unresolved {move(src)};
+				src.mark_as_path();
+				obj->data = move(src);
 				new_node->object = move(obj);
 				new_node->object->node = new_node;
 			}
