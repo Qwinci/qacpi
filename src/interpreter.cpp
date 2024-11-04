@@ -671,6 +671,21 @@ static void debug_output(ObjectRef value) {
 		[](uint64_t value) {
 			LOG << "aml debug: " << value << endlog;
 		},
+		[](Field& field) {
+			qacpi::ObjectRef obj;
+			if (!obj) {
+				return;
+			}
+			auto status = Interpreter::read_field(&field, obj);
+			if (status == qacpi::Status::Success) {
+				if (auto value = obj->get<uint64_t>()) {
+					LOG << "aml debug: " << *value << endlog;
+				}
+			}
+			else {
+				LOG << "aml debug: failed to read field " << status_to_str(status) << endlog;
+			}
+		},
 		[](auto& value) {
 
 		}
@@ -1672,27 +1687,53 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto target = objects.pop().get_unsafe<ObjectRef>();
 			auto value = pop_and_unwrap_obj();
 
-			auto dest_obj = ObjectRef::empty();
-			if (auto ref = target->get<Ref>(); ref && ref->type == Ref::Arg) {
-				auto unwrapped_target = unwrap_internal_refs(target);
-				if (unwrapped_target->get<Ref>()) {
-					dest_obj = unwrap_refs(unwrapped_target);
-				}
-				else {
-					dest_obj = move(target);
-				}
-			}
-			else {
-				dest_obj = move(target);
-			}
-
-			if (!value->data.clone(dest_obj->data)) {
+			ObjectRef new_value;
+			if (!new_value) {
 				return Status::NoMemory;
 			}
 
-			if (need_result) {
-				if (!objects.push(move(target))) {
-					return Status::NoMemory;
+			if (!value->data.clone(new_value->data)) {
+				return Status::NoMemory;
+			}
+
+			if (auto ref = target->get<Ref>(); ref && ref->type == Ref::Arg) {
+				auto unwrapped_target = unwrap_internal_refs(target);
+				if (unwrapped_target->get<Ref>()) {
+					while (true) {
+						auto& other_ref = unwrapped_target->get_unsafe<Ref>();
+						if (!other_ref.inner->get<Ref>()) {
+							other_ref.inner = new_value;
+							break;
+						}
+						unwrapped_target = other_ref.inner;
+					}
+				}
+				else {
+					ref->inner = new_value;
+				}
+
+				if (need_result) {
+					if (!objects.push(move(new_value))) {
+						return Status::NoMemory;
+					}
+				}
+			}
+			else if (ref && ref->type == Ref::Local) {
+				ref->inner = new_value;
+
+				if (need_result) {
+					if (!objects.push(move(new_value))) {
+						return Status::NoMemory;
+					}
+				}
+			}
+			else {
+				target->data = move(new_value->data);
+
+				if (need_result) {
+					if (!objects.push(move(target))) {
+						return Status::NoMemory;
+					}
 				}
 			}
 
