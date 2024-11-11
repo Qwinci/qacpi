@@ -537,6 +537,8 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 			return Status::Success;
 		}
 		else if (find_type(ObjectType::Buffer)) {
+			// todo don't resize existing buffer
+
 			if (field->bit_size <= int_size * 8) {
 				if (auto status = read_field(field, res); status != Status::Success) {
 					return status;
@@ -548,12 +550,14 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 				}
 
 				res->data = move(buffer);
-				return Status::Success;
 			}
 			else {
-				LOG << "qacpi: large field -> buffer is not implemented" << endlog;
-				return Status::Unsupported;
+				if (auto status = read_field(field, res); status != Status::Success) {
+					return status;
+				}
 			}
+
+			return Status::Success;
 		}
 		else if (find_type(ObjectType::String)) {
 			String str;
@@ -756,9 +760,36 @@ Status Interpreter::store_to_target(ObjectRef target, ObjectRef value) {
 			memcpy(owner.data() + buf_field->byte_offset, &old, to_copy);
 		}
 		else {
-			LOG << "qacpi: BufferField writes greater than 8 bytes are not implemented" << endlog;
-			return Status::Unsupported;
+			auto converted_obj = ObjectRef::empty();
+			if (auto status = try_convert(real_value, converted_obj, {ObjectType::Buffer}); status != Status::Success) {
+				return status;
+			}
+			auto& converted = converted_obj->get_unsafe<Buffer>();
+
+			uint32_t byte_offset = buf_field->byte_offset;
+			for (uint32_t i = 0; i < buf_field->total_bit_size;) {
+				uint32_t bit_offset = (buf_field->bit_offset + i) % 8;
+				uint32_t bits = QACPI_MIN(buf_field->total_bit_size - i, 8);
+
+				uint64_t old = 0;
+				memcpy(&old, owner.data() + byte_offset, (bits + 7) / 8);
+
+				uint64_t size_mask = (uint64_t {1} << bits) - 1;
+				old &= ~(size_mask << bit_offset);
+
+				uint64_t tmp = 0;
+				memcpy(&tmp, converted.data() + i / 8, (bits + 7) / 8);
+				tmp >>= i % 8;
+				tmp &= size_mask;
+
+				old |= tmp << bit_offset;
+
+				memcpy(owner.data() + byte_offset, &old, (bits + 7) / 8);
+
+				++byte_offset;
+			}
 		}
+
 		return Status::Success;
 	}
 	else if (auto field = real_target->get<Field>()) {
@@ -4337,77 +4368,100 @@ Interpreter::~Interpreter() {
 	}
 }
 
+static Status read_field_to_buffer(Field* field, uint8_t* dest) {
+	uint32_t access_bits = field->access_size * 8;
+
+	uint32_t byte_offset = (field->bit_offset & ~(access_bits - 1)) / 8;
+	for (uint32_t i = 0; i < field->bit_size;) {
+		uint32_t bit_offset_within_access = (field->bit_offset + i) % access_bits;
+		uint32_t bits = QACPI_MIN(field->bit_size - i, access_bits - bit_offset_within_access);
+
+		uint64_t value = 0;
+		if (field->type == Field::Normal || field->type == Field::Bank) {
+			if (field->type == Field::Bank) {
+				ObjectRef bank_value;
+				if (!bank_value) {
+					return Status::NoMemory;
+				}
+				bank_value->data = field->bank_value;
+				if (auto status = Interpreter::write_field(&field->data_bank->get_unsafe<Field>(), bank_value);
+					status != Status::Success) {
+					return status;
+				}
+			}
+
+			auto& region = field->owner_index->get_unsafe<OpRegion>();
+			if (auto status = region.read(byte_offset, field->access_size, value);
+				status != Status::Success) {
+				return status;
+			}
+		}
+		else {
+			auto& index = field->owner_index->get_unsafe<Field>();
+			auto& data = field->data_bank->get_unsafe<Field>();
+
+			ObjectRef offset;
+			if (!offset) {
+				return Status::NoMemory;
+			}
+			offset->data = uint64_t {byte_offset};
+			if (auto status = Interpreter::write_field(&index, offset);
+				status != Status::Success) {
+				return status;
+			}
+
+			ObjectRef value_obj;
+			if (!value_obj) {
+				return Status::NoMemory;
+			}
+
+			if (auto status = Interpreter::read_field(&data, value_obj);
+				status != Status::Success) {
+				return status;
+			}
+			if (!value_obj->get<uint64_t>()) {
+				LOG << "qacpi error: IndexField Data field with size greater than 8 bytes is not supported" << endlog;
+				return Status::Unsupported;
+			}
+			value = value_obj->get_unsafe<uint64_t>();
+		}
+
+		value >>= bit_offset_within_access;
+
+		uint64_t size_mask = (uint64_t {1} << bits) - 1;
+		value &= size_mask;
+
+		uint64_t tmp = 0;
+		memcpy(&tmp, dest + i / 8, (bits + 7) / 8);
+		tmp |= value << (i % 8);
+		memcpy(dest + i / 8, &tmp, (bits + 7) / 8);
+
+		i += bits;
+		byte_offset += field->access_size;
+	}
+
+	return qacpi::Status::Success;
+}
+
 Status Interpreter::read_field(Field* field, ObjectRef& dest) {
 	if (field->bit_size > 64) {
-		LOG << "qacpi error: Field sizes greater than 8 bytes are not supported" << endlog;
-		return Status::Unsupported;
+		Buffer dest_value {};
+		if (!dest_value.init_with_size((field->bit_size + 7) / 8)) {
+			return Status::NoMemory;
+		}
+
+		if (auto status = read_field_to_buffer(field, dest_value.data());
+			status != Status::Success) {
+			return status;
+		}
+
+		dest->data = move(dest_value);
 	}
 	else {
 		uint64_t dest_value = 0;
-
-		uint32_t byte_offset = (field->bit_offset & ~((field->access_size * 8) - 1)) / 8;
-		for (uint32_t i = 0; i < field->bit_size;) {
-			uint32_t bit_offset = (field->bit_offset + i) & ((field->access_size * 8) - 1);
-			uint32_t bits = QACPI_MIN(field->bit_size - i, (field->access_size * 8) - bit_offset);
-
-			uint64_t value = 0;
-			if (field->type == Field::Normal || field->type == Field::Bank) {
-				if (field->type == Field::Bank) {
-					ObjectRef bank_value;
-					if (!bank_value) {
-						return Status::NoMemory;
-					}
-					bank_value->data = field->bank_value;
-					if (auto status = write_field(&field->data_bank->get_unsafe<Field>(), bank_value);
-						status != Status::Success) {
-						return status;
-					}
-				}
-
-				auto& region = field->owner_index->get_unsafe<OpRegion>();
-				if (auto status = region.read(byte_offset, field->access_size, value);
-					status != Status::Success) {
-					return status;
-				}
-			}
-			else {
-				auto& index = field->owner_index->get_unsafe<Field>();
-				auto& data = field->data_bank->get_unsafe<Field>();
-
-				ObjectRef offset;
-				if (!offset) {
-					return Status::NoMemory;
-				}
-				offset->data = uint64_t {byte_offset};
-				if (auto status = write_field(&index, offset);
-					status != Status::Success) {
-					return status;
-				}
-
-				ObjectRef value_obj;
-				if (!value_obj) {
-					return Status::NoMemory;
-				}
-
-				if (auto status = read_field(&data, value_obj);
-					status != Status::Success) {
-					return status;
-				}
-				if (!value_obj->get<uint64_t>()) {
-					LOG << "qacpi error: IndexField Data field with size greater than 8 bytes is not supported" << endlog;
-					return Status::Unsupported;
-				}
-				value = value_obj->get_unsafe<uint64_t>();
-			}
-
-			value >>= bit_offset;
-
-			uint32_t size_mask = (uint32_t {1} << bits) - 1;
-			value &= size_mask;
-
-			dest_value |= value << i;
-			i += bits;
-			byte_offset += field->access_size;
+		if (auto status = read_field_to_buffer(field, reinterpret_cast<uint8_t*>(&dest_value));
+			status != Status::Success) {
+			return status;
 		}
 
 		dest->data = dest_value;
@@ -4416,83 +4470,16 @@ Status Interpreter::read_field(Field* field, ObjectRef& dest) {
 	return Status::Success;
 }
 
-Status Interpreter::write_field(Field* field, const ObjectRef& value) {
-	if (field->bit_size > 64) {
-		LOG << "qacpi error: Field sizes greater than 8 bytes are not supported" << endlog;
-		return Status::Unsupported;
-	}
-	else {
-		auto int_value = value->get_unsafe<uint64_t>();
+static Status write_field_from_buffer(Field* field, const uint8_t* value) {
+	uint32_t access_bits = field->access_size * 8;
 
-		uint32_t byte_offset = (field->bit_offset & ~((field->access_size * 8) - 1)) / 8;
-		for (uint32_t i = 0; i < field->bit_size;) {
-			uint32_t bit_offset = (field->bit_offset + i) & ((field->access_size * 8) - 1);
-			uint32_t bits = QACPI_MIN(field->bit_size - i, (field->access_size * 8) - bit_offset);
+	uint32_t byte_offset = (field->bit_offset & ~(access_bits - 1)) / 8;
+	for (uint32_t i = 0; i < field->bit_size;) {
+		uint32_t bit_offset_within_access = (field->bit_offset + i) % access_bits;
+		uint32_t bits = QACPI_MIN(field->bit_size - i, access_bits - bit_offset_within_access);
 
-			uint64_t old_value = 0;
-			if (field->update == FieldUpdate::Preserve) {
-				if (field->type == Field::Normal || field->type == Field::Bank) {
-					if (field->type == Field::Bank) {
-						ObjectRef bank_value;
-						if (!bank_value) {
-							return Status::NoMemory;
-						}
-						bank_value->data = field->bank_value;
-						if (auto status = write_field(&field->data_bank->get_unsafe<Field>(), bank_value);
-							status != Status::Success) {
-							return status;
-						}
-					}
-
-					auto& region = field->owner_index->get_unsafe<OpRegion>();
-					if (auto status = region.read(byte_offset, field->access_size, old_value);
-						status != Status::Success) {
-						return status;
-					}
-				}
-				else {
-					auto& index = field->owner_index->get_unsafe<Field>();
-					auto& data = field->data_bank->get_unsafe<Field>();
-
-					ObjectRef offset;
-					if (!offset) {
-						return Status::NoMemory;
-					}
-					offset->data = uint64_t {byte_offset};
-					if (auto status = write_field(&index, offset);
-						status != Status::Success) {
-						return status;
-					}
-
-					ObjectRef value_obj;
-					if (!value_obj) {
-						return Status::NoMemory;
-					}
-
-					if (auto status = read_field(&data, value_obj);
-						status != Status::Success) {
-						return status;
-					}
-					if (!value_obj->get<uint64_t>()) {
-						LOG << "qacpi error: IndexField Data field with size greater than 8 bytes is not supported" << endlog;
-						return Status::Unsupported;
-					}
-					old_value = value_obj->get_unsafe<uint64_t>();
-				}
-			}
-			else if (field->update == FieldUpdate::WriteAsOnes) {
-				old_value = 0xFFFFFFFFFFFFFFFF;
-			}
-			else {
-				old_value = 0;
-			}
-
-			uint32_t size_mask = (uint32_t {1} << bits) - 1;
-
-			uint64_t new_value = old_value;
-			new_value &= ~(size_mask << bit_offset);
-			new_value |= ((int_value >> i) & size_mask) << bit_offset;
-
+		uint64_t old_value = 0;
+		if (field->update == FieldUpdate::Preserve) {
 			if (field->type == Field::Normal || field->type == Field::Bank) {
 				if (field->type == Field::Bank) {
 					ObjectRef bank_value;
@@ -4500,14 +4487,14 @@ Status Interpreter::write_field(Field* field, const ObjectRef& value) {
 						return Status::NoMemory;
 					}
 					bank_value->data = field->bank_value;
-					if (auto status = write_field(&field->data_bank->get_unsafe<Field>(), bank_value);
+					if (auto status = Interpreter::write_field(&field->data_bank->get_unsafe<Field>(), bank_value);
 						status != Status::Success) {
 						return status;
 					}
 				}
 
 				auto& region = field->owner_index->get_unsafe<OpRegion>();
-				if (auto status = region.write(byte_offset, field->access_size, new_value);
+				if (auto status = region.read(byte_offset, field->access_size, old_value);
 					status != Status::Success) {
 					return status;
 				}
@@ -4521,7 +4508,7 @@ Status Interpreter::write_field(Field* field, const ObjectRef& value) {
 					return Status::NoMemory;
 				}
 				offset->data = uint64_t {byte_offset};
-				if (auto status = write_field(&index, offset);
+				if (auto status = Interpreter::write_field(&index, offset);
 					status != Status::Success) {
 					return status;
 				}
@@ -4530,17 +4517,99 @@ Status Interpreter::write_field(Field* field, const ObjectRef& value) {
 				if (!value_obj) {
 					return Status::NoMemory;
 				}
-				value_obj->data = new_value;
 
-				if (auto status = write_field(&data, value_obj);
+				if (auto status = Interpreter::read_field(&data, value_obj);
+					status != Status::Success) {
+					return status;
+				}
+				if (!value_obj->get<uint64_t>()) {
+					LOG << "qacpi error: IndexField Data field with size greater than 8 bytes is not supported" << endlog;
+					return Status::Unsupported;
+				}
+				old_value = value_obj->get_unsafe<uint64_t>();
+			}
+		}
+		else if (field->update == FieldUpdate::WriteAsOnes) {
+			old_value = 0xFFFFFFFFFFFFFFFF;
+		}
+		else {
+			old_value = 0;
+		}
+
+		uint64_t size_mask = (uint64_t {1} << bits) - 1;
+
+		uint64_t new_value = old_value;
+		new_value &= ~(size_mask << bit_offset_within_access);
+
+		uint64_t tmp = 0;
+		memcpy(&tmp, value + i / 8, (bits + 7) / 8);
+		tmp >>= i % 8;
+		tmp &= size_mask;
+
+		new_value |= tmp << bit_offset_within_access;
+
+		if (field->type == Field::Normal || field->type == Field::Bank) {
+			if (field->type == Field::Bank) {
+				ObjectRef bank_value;
+				if (!bank_value) {
+					return Status::NoMemory;
+				}
+				bank_value->data = field->bank_value;
+				if (auto status = Interpreter::write_field(&field->data_bank->get_unsafe<Field>(), bank_value);
 					status != Status::Success) {
 					return status;
 				}
 			}
 
-			i += bits;
-			byte_offset += field->access_size;
+			auto& region = field->owner_index->get_unsafe<OpRegion>();
+			if (auto status = region.write(byte_offset, field->access_size, new_value);
+				status != Status::Success) {
+				return status;
+			}
 		}
+		else {
+			auto& index = field->owner_index->get_unsafe<Field>();
+			auto& data = field->data_bank->get_unsafe<Field>();
+
+			ObjectRef offset;
+			if (!offset) {
+				return Status::NoMemory;
+			}
+			offset->data = uint64_t {byte_offset};
+			if (auto status = Interpreter::write_field(&index, offset);
+				status != Status::Success) {
+				return status;
+			}
+
+			ObjectRef value_obj;
+			if (!value_obj) {
+				return Status::NoMemory;
+			}
+			value_obj->data = new_value;
+
+			if (auto status = Interpreter::write_field(&data, value_obj);
+				status != Status::Success) {
+				return status;
+			}
+		}
+
+		i += bits;
+		byte_offset += field->access_size;
+	}
+
+	return qacpi::Status::Success;
+}
+
+Status Interpreter::write_field(Field* field, const ObjectRef& value) {
+	if (field->bit_size > 64) {
+		auto& buffer_value = value->get_unsafe<Buffer>();
+
+		return write_field_from_buffer(field, buffer_value.data());
+	}
+	else {
+		auto int_value = value->get_unsafe<uint64_t>();
+
+		return write_field_from_buffer(field, reinterpret_cast<const uint8_t*>(&int_value));
 	}
 
 	return Status::Success;
