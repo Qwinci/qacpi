@@ -311,14 +311,21 @@ namespace qacpi::events {
 			}
 
 			if (pm1_evt_sts & (0b111 << 8 | 1)) {
+				bool handled = false;
+
 				for (auto event : ALL_EVENTS) {
 					if (pm1_evt_sts & 1 << static_cast<int>(event)) {
 						auto& fixed_event = fixed_handlers[static_cast<int>(event)];
 
 						if (fixed_event.fn) {
 							qacpi_os_queue_work(acpi_fixed_work, &fixed_event);
+							handled = true;
 						}
 					}
+				}
+
+				if (!handled) {
+					return false;
 				}
 
 				uint64_t value = pm1_evt_sts & (0b111 << 8 | 1);
@@ -474,6 +481,16 @@ namespace qacpi::events {
 				block.regs.back().clear_all_sts();
 			}
 		};
+
+		inner->enable_fixed_event(FixedEvent::Timer, false);
+		inner->enable_fixed_event(FixedEvent::Rtc, false);
+
+		if (!(fadt->flags & 1 << 4)) {
+			inner->enable_fixed_event(FixedEvent::PowerButton, false);
+		}
+		if (!(fadt->flags & 1 << 5)) {
+			inner->enable_fixed_event(FixedEvent::SleepButton, false);
+		}
 
 		create_gpe_regs(gpe0_addr, inner->gpe_blocks[0], fadt->gpe0_blk_len);
 		create_gpe_regs(gpe1_addr, inner->gpe_blocks[1], fadt->gpe1_blk_len);
