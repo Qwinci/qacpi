@@ -323,6 +323,11 @@ static constexpr uint32_t DEVICE_FUNCTIONING = 1 << 3;
 Status Context::init_namespace() {
 	//LOG << "qacpi: Running _STA/_INI" << endlog;
 
+	auto tmp_res = qacpi::ObjectRef::empty();
+	evaluate(root, "_INI", tmp_res);
+	auto sb = find_node(root, "_SB", true);
+	evaluate(sb, "_INI", tmp_res);
+
 	auto* reg_region = regions_to_reg;
 	while (reg_region) {
 		auto& region = reg_region->object->get_unsafe<OpRegion>();
@@ -353,11 +358,14 @@ Status Context::init_namespace() {
 	auto res = ObjectRef::empty();
 	while (!stack.is_empty()) {
 		auto node = stack.pop();
+		if (node->is_alias) {
+			continue;
+		}
 
 		auto status = evaluate(node, "_STA", res);
 
-		bool run_ini = node->_name[0] == 0;
-		bool examine_children = node->_name[0] == 0;
+		bool run_ini = false;
+		bool examine_children = false;
 
 		if (status == Status::Success) {
 			auto value = res->get_unsafe<uint64_t>();
@@ -373,7 +381,7 @@ Status Context::init_namespace() {
 			LOG << "qacpi: error while running _STA for " << node->name() << endlog;
 		}
 		else {
-			if (node->object && node->object->is_device()) {
+			if (node->object && node->object->is_device() && node->_name[0] && node != sb) {
 				run_ini = true;
 			}
 			examine_children = true;
@@ -387,8 +395,8 @@ Status Context::init_namespace() {
 		}
 
 		if (examine_children) {
-			for (size_t i = 0; i < node->child_count; ++i) {
-				if (!stack.push(node->children[i])) {
+			for (size_t i = node->child_count; i > 0; --i) {
+				if (!stack.push(node->children[i - 1])) {
 					return Status::NoMemory;
 				}
 			}

@@ -1943,6 +1943,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				break;
 			}
 			new_node->parent = current_scope;
+			new_node->is_alias = true;
 			if (node) {
 				new_node->object = node->object;
 			}

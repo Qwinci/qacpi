@@ -52,5 +52,6 @@ namespace qacpi {
 		size_t child_cap {};
 		ObjectRef object {ObjectRef::empty()};
 		NamespaceNode* link {};
+		bool is_alias {};
 	};
 }
