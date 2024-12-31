@@ -323,6 +323,31 @@ Status Interpreter::handle_name(Interpreter::Frame& frame, bool need_result, boo
 			return Status::NoMemory;
 		}
 	}
+	else if (auto field = obj->get<Field>()) {
+		if (super_name) {
+			if (need_result) {
+				auto copy = obj;
+				if (!objects.push(move(copy))) {
+					return Status::NoMemory;
+				}
+			}
+			return Status::Success;
+		}
+
+		qacpi::ObjectRef res;
+		if (!res) {
+			return Status::NoMemory;
+		}
+		if (auto status = read_field(field, res); status != Status::Success) {
+			return status;
+		}
+		if (need_result) {
+			if (!objects.push(move(res))) {
+				return Status::NoMemory;
+			}
+		}
+		return Status::Success;
+	}
 	else {
 		if (need_result) {
 			auto copy = obj;
@@ -1572,11 +1597,6 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				}
 
 				auto real_arg = pop_and_unwrap_obj();
-				if (auto field = real_arg->get<Field>()) {
-					if (auto status = read_field(field, real_arg); status != Status::Success) {
-						return status;
-					}
-				}
 
 				auto arg = ObjectRef::empty();
 				if (!real_arg->get<String>() && !real_arg->get<Buffer>() && !real_arg->get<Package>()) {
@@ -2933,11 +2953,6 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		case OpHandler::Return:
 		{
 			auto value = pop_and_unwrap_obj();
-			if (auto field = value->get<Field>()) {
-				if (auto status = read_field(field, value); status != Status::Success) {
-					return status;
-				}
-			}
 
 			if (method_frames.is_empty()) {
 				return Status::InvalidAml;
@@ -4480,7 +4495,7 @@ static Status write_field_from_buffer(Field* field, const uint8_t* value) {
 		uint32_t bits = QACPI_MIN(field->bit_size - i, access_bits - bit_offset_within_access);
 
 		uint64_t old_value = 0;
-		if (field->update == FieldUpdate::Preserve) {
+		if (field->update == FieldUpdate::Preserve && (bit_offset_within_access != 0 || bits != access_bits)) {
 			if (field->type == Field::Normal || field->type == Field::Bank) {
 				if (field->type == Field::Bank) {
 					ObjectRef bank_value;
