@@ -82,7 +82,7 @@ int main() {
 	qacpi::StringView match {"QEMU0002"};
 	ctx.discover_nodes(ctx.get_root(), &match, 1, [](qacpi::Context& ctx, qacpi::NamespaceNode* node) {
 		// do something using node
-		return false;
+		return qacpi::IterDecision::Break;
 	});
 
 	// this is also predefined in utils.hpp as PCIE_ID.
@@ -93,11 +93,10 @@ int main() {
 	// iteration.
 	ctx.discover_nodes(ctx.get_root(), &pcie_id, 1, [](qacpi::Context& ctx, qacpi::NamespaceNode* node) {
 		// do something using node
-		return false;
+		return qacpi::IterDecision::Continue;
 	});
 }
+```
 
 ## Credits
 - [uACPI](https://github.com/UltraOS/uACPI) for tests and general reference
-
-```
