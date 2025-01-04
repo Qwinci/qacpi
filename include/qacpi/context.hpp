@@ -146,6 +146,7 @@ namespace qacpi {
 
 		void* notify_arg {};
 		uint64_t max_callstack_depth {256};
+		uint64_t loop_timeout_seconds {2};
 
 	private:
 		friend struct Interpreter;

@@ -24,8 +24,14 @@ namespace qacpi {
 			const uint8_t* start;
 			const uint8_t* end;
 			const uint8_t* ptr;
-			NamespaceNode* parent_scope;
+			const uint8_t* prev_while_end;
+			union {
+				NamespaceNode* parent_scope;
+				uint64_t expiration_time;
+			};
 			SmallVec<OpBlockCtx, 8> op_blocks;
+			uint64_t prev_while_expiration;
+			uint32_t objects_at_start;
 			bool need_result;
 			bool is_method;
 			enum : uint8_t {
@@ -107,6 +113,8 @@ namespace qacpi {
 		};
 
 		Status parse_field(FieldList& list, Frame& frame);
+
+		Status unwind_stack();
 
 		Status handle_op(Frame& frame, const OpBlockCtx& block, bool need_result);
 		Status parse();

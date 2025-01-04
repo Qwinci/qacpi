@@ -15,6 +15,7 @@ Status Interpreter::execute(const uint8_t* aml, uint32_t size) {
 	frame->start = aml;
 	frame->end = aml + size;
 	frame->ptr = aml;
+	frame->objects_at_start = objects.size();
 	frame->need_result = false;
 	frame->is_method = false;
 	frame->type = Frame::Scope;
@@ -562,8 +563,6 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 			return Status::Success;
 		}
 		else if (find_type(ObjectType::Buffer)) {
-			// todo don't resize existing buffer
-
 			if (field->bit_size <= int_size * 8) {
 				if (auto status = read_field(field, res); status != Status::Success) {
 					return status;
@@ -1141,6 +1140,42 @@ Status Interpreter::parse_field(FieldList& list, Frame& frame) {
 	return Status::Success;
 }
 
+Status Interpreter::unwind_stack() {
+	while (frames.size() > 1) {
+		auto& frame_iter = frames.back();
+		if (!frame_iter.is_method) {
+			frames.pop_discard();
+		}
+		else {
+			if (frames.size() == 2 && frames[0].need_result) {
+				ObjectRef obj;
+				if (!obj) {
+					return Status::NoMemory;
+				}
+				obj->data = Uninitialized {};
+
+				if (!objects.push(move(obj))) {
+					return Status::NoMemory;
+				}
+				frames[0].need_result = false;
+			}
+
+			if (frame_iter.type == Frame::Scope) {
+				current_scope = frame_iter.parent_scope;
+			}
+
+			while (objects.size() != frame_iter.objects_at_start) {
+				objects.pop_discard();
+			}
+
+			frames.pop_discard();
+			method_frames.pop_discard();
+		}
+	}
+
+	return Status::Success;
+}
+
 Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block, bool need_result) {
 	switch (block.block->handler) {
 		case OpHandler::None:
@@ -1571,29 +1606,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				objects.pop_discard();
 
 				LOG << "qacpi: stopping method execution due to recursion limit" << endlog;
-
-				while (frames.size() > 1) {
-					auto& frame_iter = frames.back();
-					if (!frame_iter.is_method) {
-						frames.pop_discard();
-					}
-					else {
-						if (frames.size() == 2 && frame_iter.need_result) {
-							ObjectRef obj;
-							if (!obj) {
-								return Status::NoMemory;
-							}
-							obj->data = Uninitialized {};
-
-							if (!objects.push(move(obj))) {
-								return Status::NoMemory;
-							}
-							frame_iter.need_result = false;
-						}
-
-						frames.pop_discard();
-						method_frames.pop_discard();
-					}
+				if (auto status = unwind_stack(); status != Status::Success) {
+					return status;
 				}
 
 				break;
@@ -1650,6 +1664,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			objects.pop();
+
+			new_frame->objects_at_start = objects.size();
 
 			break;
 		}
@@ -2073,6 +2089,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				new_frame->end = end;
 				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
+				new_frame->objects_at_start = objects.size();
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
@@ -2914,6 +2931,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					new_frame->end = end;
 					new_frame->ptr = start;
 					new_frame->parent_scope = nullptr;
+					new_frame->objects_at_start = objects.size();
 					new_frame->need_result = false;
 					new_frame->is_method = false;
 					new_frame->type = Frame::If;
@@ -2958,24 +2976,51 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			if (pred_val->get_unsafe<uint64_t>()) {
-				if (len) {
-					auto start = frame.ptr;
-					auto end = frame.ptr + len;
-					frame.ptr = pkg_len.start - 1;
+				auto start = frame.ptr;
+				auto end = frame.ptr + len;
+				frame.ptr = pkg_len.start - 1;
 
-					auto* new_frame = frames.push();
-					if (!new_frame) {
-						return Status::NoMemory;
+				auto prev_while_end = frame.prev_while_end;
+				auto prev_while_expiration = frame.prev_while_expiration;
+
+				auto* new_frame = frames.push();
+				if (!new_frame) {
+					return Status::NoMemory;
+				}
+
+				new_frame->start = start;
+				new_frame->end = end;
+				new_frame->ptr = start;
+				new_frame->parent_scope = nullptr;
+				new_frame->objects_at_start = objects.size();
+
+				uint64_t current = qacpi_os_timer() * 100;
+
+				if (end == prev_while_end) {
+					if (current >= prev_while_expiration) {
+						LOG << "qacpi: loop timed out after "
+						    << context->loop_timeout_seconds
+						    << " seconds"
+						    << endlog;
+
+						if (auto status = unwind_stack(); status != Status::Success) {
+							return status;
+						}
+
+						break;
 					}
 
-					new_frame->start = start;
-					new_frame->end = end;
-					new_frame->ptr = start;
-					new_frame->parent_scope = nullptr;
-					new_frame->need_result = false;
-					new_frame->is_method = false;
-					new_frame->type = Frame::While;
+					new_frame->expiration_time = prev_while_expiration;
 				}
+				else {
+					new_frame->expiration_time = current +
+						context->loop_timeout_seconds *
+						(1000 * 1000 * 1000);
+				}
+
+				new_frame->need_result = false;
+				new_frame->is_method = false;
+				new_frame->type = Frame::While;
 			}
 			else {
 				frame.ptr += len;
@@ -3345,6 +3390,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				new_frame->end = end;
 				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
+				new_frame->objects_at_start = objects.size();
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
@@ -3406,6 +3452,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				new_frame->end = end;
 				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
+				new_frame->objects_at_start = objects.size();
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
@@ -3503,6 +3550,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				new_frame->end = end;
 				new_frame->ptr = start;
 				new_frame->parent_scope = current_scope;
+				new_frame->objects_at_start = objects.size();
 				new_frame->need_result = false;
 				new_frame->is_method = false;
 				new_frame->type = Frame::Scope;
@@ -3999,6 +4047,10 @@ Status Interpreter::parse() {
 				if (frame.type == Frame::Scope) {
 					current_scope = frame.parent_scope;
 				}
+				else if (frame.type == Frame::While) {
+					frames[frame_index - 1].prev_while_end = frame.end;
+					frames[frame_index - 1].prev_while_expiration = frame.expiration_time;
+				}
 				if (frame.is_method) {
 					method_frames.pop_discard();
 					if (frame.need_result) {
@@ -4243,6 +4295,7 @@ Status Interpreter::parse() {
 					new_frame->end = end;
 					new_frame->ptr = start;
 					new_frame->parent_scope = current_scope;
+					new_frame->objects_at_start = objects.size();
 					new_frame->need_result = true;
 					new_frame->is_method = false;
 					new_frame->type = Frame::Package;
