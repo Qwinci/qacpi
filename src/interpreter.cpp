@@ -1564,6 +1564,41 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		{
 			auto& args = objects[block.objects_at_start].get_unsafe<MethodArgs>();
 
+			if (method_frames.size() == context->max_callstack_depth) {
+				for (int i = 0; i < args.method->arg_count; ++i) {
+					objects.pop_discard();
+				}
+				objects.pop_discard();
+
+				LOG << "qacpi: stopping method execution due to recursion limit" << endlog;
+
+				while (frames.size() > 1) {
+					auto& frame_iter = frames.back();
+					if (!frame_iter.is_method) {
+						frames.pop_discard();
+					}
+					else {
+						if (frames.size() == 2 && frame_iter.need_result) {
+							ObjectRef obj;
+							if (!obj) {
+								return Status::NoMemory;
+							}
+							obj->data = Uninitialized {};
+
+							if (!objects.push(move(obj))) {
+								return Status::NoMemory;
+							}
+							frame_iter.need_result = false;
+						}
+
+						frames.pop_discard();
+						method_frames.pop_discard();
+					}
+				}
+
+				break;
+			}
+
 			auto* new_frame = frames.push();
 			if (!new_frame) {
 				return Status::NoMemory;

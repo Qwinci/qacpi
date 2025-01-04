@@ -145,6 +145,7 @@ namespace qacpi {
 		}
 
 		void* notify_arg {};
+		uint64_t max_callstack_depth {256};
 
 	private:
 		friend struct Interpreter;
@@ -174,7 +175,6 @@ namespace qacpi {
 		};
 		RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
 		NamespaceNode* regions_to_reg {};
-		uint64_t timeout_100ns = 10 * 1000 * 1000 * 2;
 		uint8_t revision;
 		LogLevel log_level;
 	};
