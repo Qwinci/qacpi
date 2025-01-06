@@ -260,7 +260,7 @@ def run_tests(cases: List[TestCase], runner: str, skipped: int) -> bool:
     pass_count = len(cases) - fail_count
     print(f"SUMMARY: {pass_count}/{len(cases)}", end="")
 
-    expected_fail = 7 - skipped
+    expected_fail = 6 - skipped
 
     if fail_count:
         print(f" ({fail_count} FAILED, {expected_fail} EXPECTED)")
@@ -357,13 +357,13 @@ def main() -> int:
     with TestHeaderFooter("AML Tests"):
         ret = run_tests(base_test_cases, test_runner, len(test_cases) - len(base_test_cases))
 
-    if ret and args.large:
+    if args.large:
         large_test_cases = generate_large_test_cases(
             args.acpi_extractor, bin_dir
         )
 
         with TestHeaderFooter("Large AML Tests"):
-            ret = run_tests(large_test_cases, test_runner)
+            ret = run_tests(large_test_cases, test_runner, 0)
 
     sys.exit(not ret)
 

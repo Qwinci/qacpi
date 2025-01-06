@@ -78,77 +78,6 @@ namespace {
 		Vector<AmlGpeEvent> aml_wake_events;
 		uint8_t base;
 	};
-	
-	struct [[gnu::packed]] SdtHeader {
-		char signature[4];
-		uint32_t length;
-		uint8_t revision;
-		uint8_t checksum;
-		char oem_id[6];
-		char oem_table_id[8];
-		uint32_t oem_revision;
-		char creator_id[4];
-		uint32_t creator_revision;
-	};
-	
-	struct [[gnu::packed]] Fadt {
-		SdtHeader hdr;
-		uint32_t fw_ctrl;
-		uint32_t dsdt;
-		uint8_t reserved0;
-		uint8_t preferred_pm_profile;
-		uint16_t sci_int;
-		uint32_t smi_cmd;
-		uint8_t acpi_enable;
-		uint8_t acpi_disable;
-		uint8_t s4bios_req;
-		uint8_t pstate_cnt;
-		uint32_t pm1a_evt_blk;
-		uint32_t pm1b_evt_blk;
-		uint32_t pm1a_cnt_blk;
-		uint32_t pm1b_cnt_blk;
-		uint32_t pm2_cnt_blk;
-		uint32_t pm_tmr_blk;
-		uint32_t gpe0_blk;
-		uint32_t gpe1_blk;
-		uint8_t pm1_evt_len;
-		uint8_t pm1_cnt_len;
-		uint8_t pm2_cnt_len;
-		uint8_t pm_tmr_len;
-		uint8_t gpe0_blk_len;
-		uint8_t gpe1_blk_len;
-		uint8_t gpe1_base;
-		uint8_t cst_cnt;
-		uint16_t p_lvl2_lat;
-		uint16_t p_lvl3_lat;
-		uint16_t flush_size;
-		uint16_t flush_stride;
-		uint8_t duty_offset;
-		uint8_t duty_width;
-		uint8_t day_alrm;
-		uint8_t mon_alrm;
-		uint8_t century;
-		uint16_t iapc_boot_arch;
-		uint8_t reserved2;
-		uint32_t flags;
-		Address reset_reg;
-		uint8_t reset_value;
-		uint16_t arm_boot_arch;
-		uint8_t fadt_minor_version;
-		uint64_t x_firmware_ctrl;
-		uint64_t x_dsdt;
-		Address x_pm1a_evt_blk;
-		Address x_pm1b_evt_blk;
-		Address x_pm1a_cnt_blk;
-		Address x_pm1b_cnt_blk;
-		Address x_pm2_cnt_blk;
-		Address x_pm_tmr_blk;
-		Address x_gpe0_blk;
-		Address x_gpe1_blk;
-		Address sleep_ctrl_reg;
-		Address sleep_sts_reg;
-		uint64_t hypervisor_vendor;
-	};
 
 	Address get_addr_from_fadt(const Fadt* fadt, Address Fadt::* extended, uint32_t Fadt::* legacy, uint8_t byte_width) {
 		if (fadt->hdr.length >= sizeof(Fadt) && (fadt->*extended).address) {
@@ -395,17 +324,16 @@ namespace qacpi::events {
 
 	bool qacpi_on_sci(void* arg);
 
-	Status Context::init(const void* fadt_ptr) {
-		if (!fadt_ptr) {
-			return Status::InvalidArgs;
+	Status Context::init(qacpi::Context* new_ctx) {
+		ctx = new_ctx;
+
+		const Table* fadt_table;
+		auto status = ctx->find_table_by_name("FACP", 0, &fadt_table);
+		if (status != Status::Success) {
+			return status;
 		}
-		auto* fadt = static_cast<const Fadt*>(fadt_ptr);
-		if (fadt->hdr.signature[0] != 'F' ||
-			fadt->hdr.signature[1] != 'A' ||
-			fadt->hdr.signature[2] != 'C' ||
-			fadt->hdr.signature[3] != 'P') {
-			return Status::InvalidArgs;
-		}
+
+		auto* fadt = static_cast<Fadt*>(fadt_table->data);
 
 		Vector<GpeRegister> gpe0_regs {};
 		Vector<GpeRegister> gpe1_regs {};
@@ -495,7 +423,7 @@ namespace qacpi::events {
 		create_gpe_regs(gpe0_addr, inner->gpe_blocks[0], fadt->gpe0_blk_len);
 		create_gpe_regs(gpe1_addr, inner->gpe_blocks[1], fadt->gpe1_blk_len);
 
-		auto status = qacpi_os_install_sci_handler(fadt->sci_int, qacpi_on_sci, this, &inner->sci_handle);
+		status = qacpi_os_install_sci_handler(fadt->sci_int, qacpi_on_sci, this, &inner->sci_handle);
 		if (status != Status::Success) {
 			inner->~Inner();
 			qacpi_os_free(inner, sizeof(Inner));
@@ -529,14 +457,14 @@ namespace qacpi::events {
 		}
 	}
 
-	Status Context::enable_events_from_ns(qacpi::Context& ctx) {
-		auto gpe_node = ctx.find_node(nullptr, "_GPE", false);
+	Status Context::enable_events_from_ns() {
+		auto gpe_node = ctx->find_node(nullptr, "_GPE", false);
 		if (!gpe_node) {
 			return Status::InternalError;
 		}
 
 		Status status = Status::Success;
-		auto iter_status = ctx.iterate_nodes(
+		auto iter_status = ctx->iterate_nodes(
 			gpe_node,
 			[&](qacpi::Context&, NamespaceNode* node) {
 				auto name = node->name();
@@ -571,7 +499,7 @@ namespace qacpi::events {
 					}
 				}
 
-				auto new_status = inner->enable_aml_gpe(ctx, index, name, trigger);
+				auto new_status = inner->enable_aml_gpe(*ctx, index, name, trigger);
 				if (new_status != Status::Success) {
 					status = new_status;
 				}
@@ -973,24 +901,24 @@ namespace qacpi::events {
 		return Status::Success;
 	}
 
-	Status Context::prepare_for_sleep_state(qacpi::Context& ctx, SleepState state) {
+	Status Context::prepare_for_sleep_state(SleepState state) {
 		qacpi::ObjectRef arg {static_cast<uint64_t>(state)};
 		if (!arg) {
 			return Status::NoMemory;
 		}
 
 		auto ret = qacpi::ObjectRef::empty();
-		auto status = ctx.evaluate("_PTS", ret, &arg, 1);
+		auto status = ctx->evaluate("_PTS", ret, &arg, 1);
 		if (status != Status::Success && status != Status::NotFound) {
 			return status;
 		}
 
-		status = get_sleep_values(ctx, state, slp_typa, slp_typb);
+		status = get_sleep_values(*ctx, state, slp_typa, slp_typb);
 		if (status != Status::Success) {
 			return status;
 		}
 
-		get_sleep_values(ctx, static_cast<SleepState>(0), slp_typa_s0, slp_typb_s0);
+		get_sleep_values(*ctx, static_cast<SleepState>(0), slp_typa_s0, slp_typb_s0);
 
 		Sst sst {};
 		switch (state) {
@@ -1006,7 +934,7 @@ namespace qacpi::events {
 				sst = Sst::No;
 				break;
 		}
-		evaluate_sst(ctx, sst);
+		evaluate_sst(*ctx, sst);
 		return Status::Success;
 	}
 
@@ -1146,8 +1074,8 @@ namespace qacpi::events {
 		return Status::Success;
 	}
 
-	Status Context::wake_from_state(qacpi::Context& ctx, SleepState state) {
-		evaluate_sst(ctx, Sst::Waking);
+	Status Context::wake_from_state(SleepState state) {
+		evaluate_sst(*ctx, Sst::Waking);
 
 		for (auto& block : inner->gpe_blocks) {
 			for (auto& reg : block.regs) {
@@ -1177,12 +1105,12 @@ namespace qacpi::events {
 		}
 
 		auto ret = qacpi::ObjectRef::empty();
-		ctx.evaluate("_WAK", ret, &arg, 1);
+		ctx->evaluate("_WAK", ret, &arg, 1);
 
 		write_to_addr(inner->pm1a_evt_sts, EVT_STS_WAK_STS_BIT);
 		write_to_addr(inner->pm1b_evt_sts, EVT_STS_WAK_STS_BIT);
 
-		evaluate_sst(ctx, Sst::Working);
+		evaluate_sst(*ctx, Sst::Working);
 
 		return Status::Success;
 	}

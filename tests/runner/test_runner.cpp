@@ -157,19 +157,6 @@ static void validate_ret_against_expected(
 	}
 }
 
-template <typename ExprT>
-class ScopeGuard
-{
-public:
-    ScopeGuard(ExprT expr)
-        : callback(std::move(expr)) {}
-
-    ~ScopeGuard() { callback(); }
-
-private:
-    ExprT callback;
-};
-
 void qacpi_os_notify(void*, qacpi::NamespaceNode* node, uint64_t value) {
 	auto path = node->absolute_path();
 	std::cout << "Received a notification from " << path.data() << " "
@@ -189,33 +176,72 @@ struct SdtHeader {
 };
 
 static void run_test(
-    std::string_view dsdt_path, qacpi::ObjectType expected_type,
-    std::string_view expected_value
+    std::string_view dsdt_path, const std::vector<std::string>& ssdt_paths,
+	qacpi::ObjectType expected_type, std::string_view expected_value
 )
 {
-	auto* dsdt = read_entire_file(dsdt_path);
-	ScopeGuard guard {[&] {
-		free(dsdt);
-	}};
-	auto* hdr = static_cast<SdtHeader*>(dsdt);
-	uint8_t* aml = reinterpret_cast<uint8_t*>(dsdt) + sizeof(SdtHeader);
-	uint32_t aml_size = hdr->length - sizeof(SdtHeader);
+	qacpi::RsdpHeader rsdp {};
+	memcpy(&rsdp.signature, "RSD PTR ", 8);
+	set_oem(rsdp.oem_id);
 
-    auto ensure_ok_status = [] (qacpi::Status st) {
-        if (st == qacpi::Status::Success)
-            return;
+	auto xsdt_bytes = sizeof(full_xsdt);
+	xsdt_bytes += ssdt_paths.size() * sizeof(qacpi::SdtHeader*);
 
-        auto msg = status_to_str(st);
-        throw std::runtime_error(std::string("qacpi error: ") + msg);
-    };
+	auto *xsdt = new (std::calloc(xsdt_bytes, 1)) full_xsdt();
+	set_oem(xsdt->hdr.oem_id);
+	set_oem_table_id(xsdt->hdr.oem_table_id);
 
-	qacpi::Context ctx {hdr->revision, qacpi::LogLevel::Verbose};
-	auto st = ctx.init();
+	auto xsdt_delete = ScopeGuard(
+		[&xsdt, &ssdt_paths] {
+			if (xsdt->fadt) {
+				delete[] reinterpret_cast<uint8_t*>(
+					static_cast<uintptr_t>(xsdt->fadt->x_dsdt)
+				);
+				delete xsdt->fadt;
+			}
+
+			for (size_t i = 0; i < ssdt_paths.size(); ++i)
+				delete[] xsdt->ssdts[i];
+
+			xsdt->~full_xsdt();
+			std::free(xsdt);
+		}
+	);
+	build_xsdt(*xsdt, rsdp, dsdt_path, ssdt_paths);
+
+	auto ensure_ok_status = [] (qacpi::Status st) {
+		if (st == qacpi::Status::Success)
+			return;
+
+		auto msg = status_to_str(st);
+		throw std::runtime_error(std::string("qacpi error: ") + msg);
+	};
+
+	qacpi::Context ctx {};
+	auto st = ctx.init(reinterpret_cast<uintptr_t>(&rsdp), qacpi::LogLevel::Verbose);
 	ensure_ok_status(st);
 
-	st = ctx.load_table(aml, aml_size);
-	ensure_ok_status(st);
+	/*
+	* Go through all AML tables and manually bump their reference counts here
+	* so that they're mapped before the call to uacpi_namespace_load(). The
+	* reason we need this is to disambiguate calls to uacpi_kernel_map() with
+	* a synthetic physical address (that is actually a virtual address for
+	* tables that we constructed earlier) or a real physical address that comes
+	* from some operation region or any other AML code or action.
+	*/
+	const qacpi::Table* tbl;
+	ctx.find_table_by_name("DSDT", 0, &tbl);
+	for (uint32_t i = 0;; ++i) {
+		st = ctx.find_table_by_name("SSDT", i, &tbl);
+		if (st != qacpi::Status::Success) {
+			break;
+		}
+	}
 
+	g_expect_virtual_addresses = false;
+
+	st = ctx.load_namespace();
+	ensure_ok_status(st);
 	st = ctx.init_namespace();
 	ensure_ok_status(st);
 
@@ -230,35 +256,35 @@ static void run_test(
 
 int main(int argc, char** argv)
 {
-    auto args = ArgParser {};
-    args.add_positional(
-            "dsdt-path-or-keyword",
-            "path to the DSDT to run or \"resource-tests\" to run the resource "
-            "tests and exit"
-        )
-        .add_list(
-            "expect", 'r', "test mode, evaluate \\MAIN and expect "
-            "<expected_type> <expected_value>"
-        )
-        .add_list(
-            "extra-tables", 'x', "a list of extra SSDTs to load"
-        )
-        .add_flag(
-            "enumerate-namespace", 'd',
-            "dump the entire namespace after loading it"
-        )
-        .add_param(
-            "while-loop-timeout", 't',
-            "number of seconds to use for the while loop timeout"
-        )
-        .add_param(
-            "log-level", 'l',
-            "log level to set, one of: debug, trace, info, warning, error"
-        )
-        .add_help(
-            "help", 'h', "Display this menu and exit",
-            [&]() { std::cout << "uACPI test runner:\n" << args; }
-        );
+	auto args = ArgParser {};
+	args.add_positional(
+			"dsdt-path-or-keyword",
+			"path to the DSDT to run or \"resource-tests\" to run the resource "
+			"tests and exit"
+		)
+		.add_list(
+			"expect", 'r', "test mode, evaluate \\MAIN and expect "
+			               "<expected_type> <expected_value>"
+		)
+		.add_list(
+			"extra-tables", 'x', "a list of extra SSDTs to load"
+		)
+		.add_flag(
+			"enumerate-namespace", 'd',
+			"dump the entire namespace after loading it"
+		)
+		.add_param(
+			"while-loop-timeout", 't',
+			"number of seconds to use for the while loop timeout"
+		)
+		.add_param(
+			"log-level", 'l',
+			"log level to set, one of: debug, trace, info, warning, error"
+		)
+		.add_help(
+			"help", 'h', "Display this menu and exit",
+			[&]() { std::cout << "uACPI test runner:\n" << args; }
+		);
 
     try {
         args.parse(argc, argv);
@@ -281,7 +307,7 @@ int main(int argc, char** argv)
             expected_value = expect[1];
         }
 
-        run_test(dsdt_path_or_keyword, expected_type, expected_value);
+        run_test(dsdt_path_or_keyword, args.get_list_or("extra-tables", {}), expected_type, expected_value);
     } catch (const std::exception& ex) {
         std::cerr << "unexpected error: " << ex.what() << std::endl;
         return 1;

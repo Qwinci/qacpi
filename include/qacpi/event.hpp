@@ -29,9 +29,9 @@ namespace qacpi::events {
 	};
 
 	struct Context {
-		Status init(const void* fadt_ptr);
+		Status init(qacpi::Context* ctx);
 
-		Status enable_events_from_ns(qacpi::Context& ctx);
+		Status enable_events_from_ns();
 
 		Status enable_fixed_event(FixedEvent event, void (*handler)(void* arg), void* arg);
 		Status disable_fixed_event(FixedEvent event);
@@ -52,11 +52,11 @@ namespace qacpi::events {
 
 		Status enable_acpi_mode(bool enable);
 
-		Status prepare_for_sleep_state(qacpi::Context& ctx, SleepState state);
+		Status prepare_for_sleep_state(SleepState state);
 		Status enter_sleep_state(SleepState state);
 
 		Status prepare_for_wake();
-		Status wake_from_state(qacpi::Context& ctx, SleepState state);
+		Status wake_from_state(SleepState state);
 
 		Status reboot();
 
@@ -67,6 +67,7 @@ namespace qacpi::events {
 
 		struct Inner;
 		Inner* inner {};
+		qacpi::Context* ctx {};
 
 		struct NotifyHandler;
 		NotifyHandler* notify_handlers {};

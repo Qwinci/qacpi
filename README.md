@@ -19,23 +19,20 @@ target_link_libraries(myexe PRIVATE qacpi_lib)
 #include "qacpi/utils.hpp"
 
 int main() {
-	uint8_t revision = ...;
-	const uint8_t* aml = ...;
-	uint32_t aml_size = ...;
+	uintptr_t rsdp_phys = ...;
+
+	qacpi::Context ctx {};
 
 	// Create a context that holds the global namespace
-	// revision is the revision from the DSDT header
+	// rsdp_phys is the physical address of the RSDP
 	// log level indicates the minimum verbosity of the logged messages
-	qacpi::Context ctx {revision, qacpi::LogLevel::Verbose};
-
-	// Initialize the context
-	auto status = ctx.init();
+	auto status = ctx.init(rsdp_phys, qacpi::LogLevel::Verbose);
 	if (status != qacpi::Status::Success) {
 		// print error using qacpi::status_to_str or do something else
 	}
 
-	// Load aml into the context (eg. from DSDT or SSDT's)
-	status = ctx.load_table(aml_ptr, aml_size);
+	// Load the aml from DSDT/SSDTs to the namespace
+	status = ctx.load_namespace();
 	// check status like above
 
 	// run STA/INIT for all the objects

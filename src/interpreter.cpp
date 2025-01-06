@@ -3831,13 +3831,27 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 		}
 		case OpHandler::DataRegion:
 		{
-			auto oem_table_id = pop_and_unwrap_obj();
-			auto oem_id = pop_and_unwrap_obj();
-			auto signature = pop_and_unwrap_obj();
+			auto oem_table_id_obj = pop_and_unwrap_obj();
+			auto oem_id_obj = pop_and_unwrap_obj();
+			auto signature_obj = pop_and_unwrap_obj();
 			auto name = objects.pop().get_unsafe<String>();
 
-			// todo implement
-			LOG << "qacpi warning: Ignoring DataRegion" << endlog;
+			auto oem_table_id = ObjectRef::empty();
+			auto oem_id = ObjectRef::empty();
+			auto signature = ObjectRef::empty();
+			if (auto status = try_convert(oem_table_id_obj, oem_table_id, {qacpi::ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(oem_id_obj, oem_id, {qacpi::ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(signature_obj, signature, {qacpi::ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+
 			break;
 		}
 		case OpHandler::IndexField:
@@ -4146,6 +4160,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto* new_frame = frames.push();
 			if (!new_frame) {
+				qacpi_os_free(ptr, buf_size);
 				return Status::NoMemory;
 			}
 			new_frame->start = data;
@@ -4163,6 +4178,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 
 			auto* method_frame = method_frames.push();
 			if (!method_frame) {
+				qacpi_os_free(ptr, buf_size);
+				frames.pop_discard();
 				return Status::NoMemory;
 			}
 			method_frame->table_target = move(target);
@@ -4172,6 +4189,28 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 	}
 
 	return Status::Success;
+}
+
+#undef CHECK_EOF
+#undef CHECK_EOF_NUM
+#define CHECK_EOF if (frame.ptr == frame.end) { \
+if (frames.size() != 1) { \
+    unwind_stack(); \
+    continue; \
+} \
+else { \
+    return Status::UnexpectedEof; \
+} \
+}
+
+#define CHECK_EOF_NUM(num) if (frame.ptr + (num) > frame.end) { \
+if (frames.size() != 1) { \
+    unwind_stack(); \
+    continue; \
+} \
+else { \
+    return Status::UnexpectedEof; \
+} \
 }
 
 Status Interpreter::parse() {
@@ -4248,8 +4287,14 @@ Status Interpreter::parse() {
 
 						if (frame.data_buf) {
 							if (!context->tables.push({
-								.data = frame.data_buf,
-								.size = frame.data_buf_size
+								.table {
+									.signature {},
+									.data = frame.data_buf,
+									.phys = 0,
+									.size = frame.data_buf_size,
+									.allocated_in_buffer = true
+								},
+								.refs = 1
 							})) {
 								return Status::NoMemory;
 							}
@@ -4671,9 +4716,15 @@ Status Interpreter::parse() {
 							.start = frame.ptr,
 							.end = frame.ptr + remaining_data,
 							.ptr = frame.ptr,
+							.prev_while_end = nullptr,
 							.parent_scope = nullptr,
 							.op_blocks {},
+							.prev_while_expiration = 0,
+							.data_buf = nullptr,
+							.data_buf_size = 0,
+							.objects_at_start = 0,
 							.need_result = false,
+							.need_load_result = false,
 							.is_method = false,
 							.type = Frame::FieldList
 						},

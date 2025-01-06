@@ -3,6 +3,7 @@
 #include "handlers.hpp"
 #include "qacpi/status.hpp"
 #include "qacpi/small_vec.hpp"
+#include "tables.hpp"
 
 namespace qacpi {
 	struct NamespaceNode;
@@ -64,11 +65,19 @@ namespace qacpi {
 	};
 
 	struct Context {
-		Context(uint8_t revision, LogLevel log_level) : revision {revision}, log_level {log_level} {}
-
-		Status init();
+		Status init(uintptr_t rsdp_phys, LogLevel log_level);
 
 		~Context();
+
+		Status find_table_by_name(StringView name, uint32_t index, const Table** table);
+		Status find_table_by_signature(
+			StringView name,
+			StringView oem_id,
+			StringView oem_table_id,
+			uint32_t index,
+			const Table** table);
+
+		Status load_namespace();
 
 		Status load_table(const uint8_t* aml, uint32_t size);
 
@@ -159,9 +168,9 @@ namespace qacpi {
 			OnlyChildren
 		};
 
-		struct Table {
-			uint8_t* data;
-			uint32_t size;
+		struct InternalTable {
+			Table table;
+			size_t refs;
 		};
 
 		template<typename F>
@@ -182,7 +191,7 @@ namespace qacpi {
 		};
 		RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
 		NamespaceNode* regions_to_reg {};
-		SmallVec<Table, 0> tables;
+		SmallVec<InternalTable, 0> tables;
 		uint8_t revision;
 		LogLevel log_level;
 	};

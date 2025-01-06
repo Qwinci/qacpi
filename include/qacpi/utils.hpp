@@ -54,7 +54,8 @@ namespace qacpi {
 		Ipmi = 0x7,
 		GeneralPurposeIo = 0x8,
 		GenericSerialBus = 0x9,
-		Pcc = 0xA
+		Pcc = 0xA,
+		TableData = 0xB
 	};
 
 	struct [[gnu::packed]] Address {

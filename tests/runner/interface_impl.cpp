@@ -22,12 +22,27 @@
 #include <unordered_map>
 
 std::unordered_map<uint64_t, uint8_t> memory;
+std::unordered_map<void*, bool> virt_allocs;
+bool g_expect_virtual_addresses = true;
 
-void* qacpi_os_map(uintptr_t, size_t size) {
+void* qacpi_os_map(uintptr_t addr, size_t size) {
+	if (g_expect_virtual_addresses) {
+		virt_allocs.insert({reinterpret_cast<void*>(addr), true});
+		return reinterpret_cast<void*>(addr);
+	}
+
 	return new uint8_t[size];
 }
 
 void qacpi_os_unmap(void* addr, size_t) {
+	if (g_expect_virtual_addresses) {
+		return;
+	}
+
+	if (virt_allocs.contains(addr)) {
+		return;
+	}
+
 	delete[] static_cast<uint8_t*>(addr);
 }
 

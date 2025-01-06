@@ -6,7 +6,180 @@
 
 using namespace qacpi;
 
-Status Context::init() {
+#define memcmp __builtin_memcmp
+#define memcpy __builtin_memcpy
+
+Status Context::init(uintptr_t rsdp_phys, LogLevel new_log_level) {
+	log_level = new_log_level;
+
+	auto* tmp_rsdp = static_cast<RsdpHeader*>(qacpi_os_map(rsdp_phys, sizeof(SdtHeader)));
+	if (!tmp_rsdp) {
+		return Status::NoMemory;
+	}
+
+	if (memcmp(tmp_rsdp->signature, "RSD PTR ", 8) != 0) {
+		qacpi_os_unmap(tmp_rsdp, sizeof(RsdpHeader));
+		return Status::InvalidArgs;
+	}
+
+	uint64_t rsdt_phys = 0;
+	if (tmp_rsdp->revision >= 2) {
+		if (tmp_rsdp->xsdt_address) {
+			rsdt_phys = tmp_rsdp->xsdt_address;
+		}
+		else {
+			rsdt_phys = tmp_rsdp->rsdt_address;
+		}
+	}
+	else {
+		rsdt_phys = tmp_rsdp->rsdt_address;
+	}
+
+	qacpi_os_unmap(tmp_rsdp, sizeof(RsdpHeader));
+
+	auto* tmp_rsdt = static_cast<SdtHeader*>(qacpi_os_map(rsdt_phys, sizeof(SdtHeader)));
+	if (!tmp_rsdt) {
+		return Status::NoMemory;
+	}
+
+	bool is_xsdt;
+	if (memcmp(tmp_rsdt->signature, "RSDT", 4) == 0) {
+		is_xsdt = false;
+	}
+	else if (memcmp(tmp_rsdt->signature, "XSDT", 4) == 0) {
+		is_xsdt = true;
+	}
+	else {
+		qacpi_os_unmap(tmp_rsdt, sizeof(SdtHeader));
+		return Status::InvalidArgs;
+	}
+
+	auto length = tmp_rsdt->length;
+	qacpi_os_unmap(tmp_rsdt, sizeof(SdtHeader));
+
+	auto add_table = [&](uintptr_t addr) {
+		auto* table = static_cast<SdtHeader*>(qacpi_os_map(addr, sizeof(SdtHeader)));
+		if (!table) {
+			return Status::NoMemory;
+		}
+
+		TableSignature sig {};
+		memcpy(sig.name, table->signature, 4);
+		memcpy(sig.oem_id, table->oem_id, 6);
+		memcpy(sig.oem_table_id, table->oem_table_id, 8);
+
+		auto table_length = table->length;
+
+		qacpi_os_unmap(table, sizeof(SdtHeader));
+
+		if (memcmp(sig.name, "FACP", 4) == 0) {
+			auto* tmp_mapping = static_cast<Fadt*>(qacpi_os_map(addr, table_length));
+			if (!tmp_mapping) {
+				return Status::NoMemory;
+			}
+
+			uintptr_t dsdt_phys;
+			if (table_length >= offsetof(Fadt, x_dsdt) + 8) {
+				if (tmp_mapping->x_dsdt) {
+					if (tmp_mapping->x_dsdt) {
+						dsdt_phys = tmp_mapping->x_dsdt;
+					}
+					else {
+						dsdt_phys = tmp_mapping->dsdt;
+					}
+				}
+				else {
+					dsdt_phys = tmp_mapping->dsdt;
+				}
+			}
+			else {
+				dsdt_phys = tmp_mapping->dsdt;
+			}
+
+			qacpi_os_unmap(tmp_mapping, table_length);
+
+			if (dsdt_phys) {
+				auto* dsdt = static_cast<SdtHeader*>(qacpi_os_map(dsdt_phys, sizeof(SdtHeader)));
+				if (!dsdt) {
+					return Status::NoMemory;
+				}
+
+				TableSignature dsdt_sig {};
+				memcpy(dsdt_sig.name, dsdt->signature, 4);
+				memcpy(dsdt_sig.oem_id, dsdt->oem_id, 6);
+				memcpy(dsdt_sig.oem_table_id, dsdt->oem_table_id, 8);
+
+				auto dsdt_length = dsdt->length;
+				revision = dsdt->revision;
+
+				qacpi_os_unmap(dsdt, sizeof(SdtHeader));
+
+				if (!tables.push({
+					.table {
+						.signature {dsdt_sig},
+						.hdr = nullptr,
+						.phys = dsdt_phys,
+						.size = dsdt_length,
+						.allocated_in_buffer = false
+					},
+					.refs = 0
+				})) {
+					return Status::NoMemory;
+				}
+			}
+		}
+
+		if (!tables.push({
+			.table {
+				.signature {sig},
+				.hdr = nullptr,
+				.phys = addr,
+				.size = table_length,
+				.allocated_in_buffer = false
+			},
+			.refs = 0
+		})) {
+			return Status::NoMemory;
+		}
+
+		return Status::Success;
+	};
+
+	if (is_xsdt) {
+		auto* xsdt = static_cast<XsdtHeader*>(qacpi_os_map(rsdt_phys, length));
+		if (!xsdt) {
+			return Status::NoMemory;
+		}
+
+		uint32_t count = (length - sizeof(XsdtHeader)) / 8;
+		for (uint32_t i = 0; i < count; ++i) {
+			auto addr = xsdt->entries[i];
+			if (auto status = add_table(addr); status != Status::Success) {
+				qacpi_os_unmap(xsdt, length);
+				return status;
+			}
+		}
+
+		qacpi_os_unmap(xsdt, length);
+	}
+	else {
+		auto* rsdt = static_cast<XsdtHeader*>(qacpi_os_map(rsdt_phys, length));
+		if (!rsdt) {
+			return Status::NoMemory;
+		}
+
+		uint32_t count = (length - sizeof(RsdtHeader)) / 4;
+		for (uint32_t i = 0; i < count; ++i) {
+			auto addr = rsdt->entries[i];
+			if (auto status = add_table(addr); status != Status::Success) {
+				qacpi_os_unmap(rsdt, length);
+				return status;
+			}
+		}
+
+		qacpi_os_unmap(rsdt, length);
+	}
+
 	auto create_predefined_node = [&](const char* name, ObjectRef obj) {
 		auto node = NamespaceNode::create(name);
 		if (!node) {
@@ -148,8 +321,124 @@ Context::~Context() {
 	}
 
 	for (auto& table : tables) {
-		qacpi_os_free(table.data, table.size);
+		if (table.table.allocated_in_buffer) {
+			qacpi_os_free(table.table.data, table.table.size);
+		}
+		else {
+			if (table.table.data) {
+				qacpi_os_unmap(table.table.data, table.table.size);
+			}
+		}
 	}
+}
+
+Status Context::find_table_by_name(StringView name, uint32_t index, const Table** table) {
+	if (name.size != 4) {
+		return Status::InvalidArgs;
+	}
+
+	for (auto& tab : tables) {
+		if (memcmp(tab.table.signature.name, name.ptr, 4) == 0) {
+			if (index == 0) {
+				if (!tab.table.data) {
+					auto* ptr = static_cast<SdtHeader*>(qacpi_os_map(tab.table.phys, tab.table.size));
+					if (!ptr) {
+						return Status::NoMemory;
+					}
+					tab.table.hdr = ptr;
+				}
+
+				++tab.refs;
+				*table = &tab.table;
+				return Status::Success;
+			}
+			else {
+				--index;
+			}
+		}
+	}
+
+	return Status::NotFound;
+}
+
+Status Context::find_table_by_signature(
+	StringView name,
+	StringView oem_id,
+	StringView oem_table_id,
+	uint32_t index,
+	const Table** table) {
+	if (name.size != 4 || oem_id.size != 6 || oem_table_id.size != 8) {
+		return Status::InvalidArgs;
+	}
+
+	for (auto& tab : tables) {
+		if (memcmp(tab.table.signature.name, name.ptr, 4) == 0 &&
+			memcmp(tab.table.signature.oem_id, oem_id.ptr, 6) == 0 &&
+			memcmp(tab.table.signature.oem_table_id, oem_table_id.ptr, 8) == 0) {
+			if (index == 0) {
+				if (!tab.table.data) {
+					auto* ptr = static_cast<SdtHeader*>(qacpi_os_map(tab.table.phys, tab.table.size));
+					if (!ptr) {
+						return Status::NoMemory;
+					}
+					tab.table.hdr = ptr;
+					++tab.refs;
+					*table = &tab.table;
+					return Status::Success;
+				}
+			}
+			else {
+				--index;
+			}
+		}
+	}
+
+	return Status::NotFound;
+}
+
+void Table::unref() const {
+	auto* ptr = const_cast<Table*>(this);
+	auto* refs = reinterpret_cast<size_t*>(ptr + 1);
+	--*refs;
+	if (!*refs) {
+		qacpi_os_unmap(data, size);
+		ptr->data = nullptr;
+	}
+}
+
+Status Context::load_namespace() {
+	const Table* dsdt;
+	if (auto status = find_table_by_name("DSDT", 0, &dsdt);
+		status != Status::Success) {
+		return status;
+	}
+
+	auto* data = reinterpret_cast<const uint8_t*>(&dsdt->hdr[1]);
+
+	if (auto status = load_table(data, dsdt->size - sizeof(SdtHeader));
+		status != Status::Success) {
+		return status;
+	}
+
+	for (uint32_t i = 0;; ++i) {
+		const Table* ssdt;
+		auto status = find_table_by_name("SSDT", i, &ssdt);
+		if (status == Status::NotFound) {
+			break;
+		}
+		else if (status != Status::Success) {
+			return status;
+		}
+
+		data = reinterpret_cast<const uint8_t*>(&ssdt->hdr[1]);
+
+		if (status = load_table(data, ssdt->size - sizeof(SdtHeader));
+			status != Status::Success) {
+			return status;
+		}
+	}
+
+	return Status::Success;
 }
 
 Status Context::load_table(const uint8_t* aml, uint32_t size) {
