@@ -23,62 +23,26 @@
 
 std::unordered_map<uint64_t, uint8_t> memory;
 
-qacpi::Status qacpi_os_mmio_read(uint64_t addr, uint8_t size, uint64_t& res) {
-	res = 0;
-	if (memory.contains(addr)) {
-		switch (size) {
-			case 8:
-				res |= static_cast<uint64_t>(memory[addr + 4]) << 32;
-				res |= static_cast<uint64_t>(memory[addr + 5]) << 40;
-				res |= static_cast<uint64_t>(memory[addr + 6]) << 48;
-				res |= static_cast<uint64_t>(memory[addr + 7]) << 56;
-				[[fallthrough]];
-			case 4:
-				res |= memory[addr + 2] << 16 | memory[addr + 3] << 24;
-				[[fallthrough]];
-			case 2:
-				res |= memory[addr + 1] << 8;
-				[[fallthrough]];
-			case 1:
-				res |= memory[addr];
-				break;
-			default:
-				break;
-		}
-	}
+void* qacpi_os_map(uintptr_t, size_t size) {
+	return new uint8_t[size];
+}
+
+void qacpi_os_unmap(void* addr, size_t) {
+	delete[] static_cast<uint8_t*>(addr);
+}
+
+qacpi::Status qacpi_os_io_map(uint64_t, uint64_t, void**) {
 	return qacpi::Status::Success;
 }
 
-qacpi::Status qacpi_os_mmio_write(uint64_t addr, uint8_t size, uint64_t value) {
-	switch (size) {
-		case 8:
-			memory[addr + 4] = value >> 32;
-			memory[addr + 5] = value >> 40;
-			memory[addr + 6] = value >> 48;
-			memory[addr + 7] = value >> 56;
-			[[fallthrough]];
-		case 4:
-			memory[addr + 2] = value >> 16;
-			memory[addr + 3] = value >> 24;
-			[[fallthrough]];
-		case 2:
-			memory[addr + 1] = value >> 8;
-			[[fallthrough]];
-		case 1:
-			memory[addr] = value;
-			break;
-		default:
-			return qacpi::Status::InvalidArgs;
-	}
-	return qacpi::Status::Success;
-}
+void qacpi_os_io_unmap(void*) {}
 
-qacpi::Status qacpi_os_io_read(uint32_t, uint8_t, uint64_t& res) {
+qacpi::Status qacpi_os_io_read(void*, uint64_t, uint8_t, uint64_t& res) {
 	res = 0xFFFFFFFFFFFFFFFF;
 	return qacpi::Status::Success;
 }
 
-qacpi::Status qacpi_os_io_write(uint32_t, uint8_t size, uint64_t) {
+qacpi::Status qacpi_os_io_write(void*, uint64_t, uint8_t size, uint64_t) {
 	switch (size) {
 		case 1:
 		case 2:
@@ -90,7 +54,7 @@ qacpi::Status qacpi_os_io_write(uint32_t, uint8_t size, uint64_t) {
 }
 
 qacpi::Status qacpi_os_pci_read(qacpi::PciAddress, uint64_t offset, uint8_t size, uint64_t& res) {
-	return qacpi_os_io_read(offset, size, res);
+	return qacpi_os_io_read(nullptr, offset, size, res);
 }
 
 qacpi::Status qacpi_os_pci_write(qacpi::PciAddress, uint64_t, uint8_t, uint64_t) {
@@ -153,7 +117,7 @@ uint64_t qacpi_os_timer()
         std::abort();
     }
 
-    return (ts.tv_nsec + ts.tv_sec * 1000000000) / 100;
+    return (static_cast<uint64_t>(ts.tv_nsec) + static_cast<uint64_t>(ts.tv_sec) * 1000000000) / 100;
 #endif
 }
 

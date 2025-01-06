@@ -109,6 +109,43 @@ namespace qacpi {
 		return Status::Success;
 	}
 
+	uint64_t mmio_read(void* addr, uint64_t offset, uint8_t size) {
+		addr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(addr) + offset);
+		switch (size) {
+			case 1:
+				return *static_cast<volatile uint8_t*>(addr);
+			case 2:
+				return *static_cast<volatile uint16_t*>(addr);
+			case 4:
+				return *static_cast<volatile uint32_t*>(addr);
+			case 8:
+				return *static_cast<volatile uint64_t*>(addr);
+			default:
+				break;
+		}
+		return 0;
+	}
+
+	void mmio_write(void* addr, uint64_t offset, uint8_t size, uint64_t value) {
+		addr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(addr) + offset);
+		switch (size) {
+			case 1:
+				*static_cast<volatile uint8_t*>(addr) = value;
+				break;
+			case 2:
+				*static_cast<volatile uint16_t*>(addr) = value;
+				break;
+			case 4:
+				*static_cast<volatile uint32_t*>(addr) = value;
+				break;
+			case 8:
+				*static_cast<volatile uint64_t*>(addr) = value;
+				break;
+			default:
+				break;
+		}
+	}
+
 	Status read_from_addr(const Address& addr, uint64_t& res) {
 		uint8_t bit_access_size;
 		if (auto status = validate_addr(addr, bit_access_size); status != Status::Success) {
@@ -137,16 +174,28 @@ namespace qacpi {
 			else {
 				uint64_t real_addr = addr.address + index * access_size;
 
-				Status status;
 				if (addr.space_id == qacpi::RegionSpace::SystemMemory) {
-					status = qacpi_os_mmio_read(real_addr, access_size, data);
+					void* mapping = qacpi_os_map(real_addr, access_size);
+					if (!mapping) {
+						return Status::NoMemory;
+					}
+
+					data = mmio_read(mapping, 0, access_size);
+					qacpi_os_unmap(mapping, access_size);
 				}
 				else {
-					status = qacpi_os_io_read(real_addr, access_size, data);
-				}
+					void* handle;
+					if (auto status = qacpi_os_io_map(real_addr, access_size, &handle);
+						status != Status::Success) {
+						return status;
+					}
+					if (auto status = qacpi_os_io_read(handle, 0, access_size, data);
+						status != Status::Success) {
+						qacpi_os_io_unmap(handle);
+						return status;
+					}
 
-				if (status != Status::Success) {
-					return status;
+					qacpi_os_io_unmap(handle);
 				}
 			}
 
@@ -186,16 +235,28 @@ namespace qacpi {
 			else {
 				uint64_t real_addr = addr.address + index * access_size;
 
-				Status status;
 				if (addr.space_id == qacpi::RegionSpace::SystemMemory) {
-					status = qacpi_os_mmio_write(real_addr, access_size, data);
+					void* mapping = qacpi_os_map(real_addr, access_size);
+					if (!mapping) {
+						return Status::NoMemory;
+					}
+
+					mmio_write(mapping, 0, access_size, data);
+					qacpi_os_unmap(mapping, access_size);
 				}
 				else {
-					status = qacpi_os_io_write(real_addr, access_size, data);
-				}
+					void* handle;
+					if (auto status = qacpi_os_io_map(real_addr, access_size, &handle);
+						status != Status::Success) {
+						return status;
+					}
+					if (auto status = qacpi_os_io_write(handle, 0, access_size, data);
+						status != Status::Success) {
+						qacpi_os_io_unmap(handle);
+						return status;
+					}
 
-				if (status != Status::Success) {
-					return status;
+					qacpi_os_io_unmap(handle);
 				}
 			}
 

@@ -109,7 +109,8 @@ namespace qacpi {
 		DataRegion,
 		IndexField,
 		BankField,
-		Match
+		Match,
+		Load
 	};
 
 	struct OpBlock {

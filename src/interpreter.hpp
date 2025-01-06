@@ -31,8 +31,11 @@ namespace qacpi {
 			};
 			SmallVec<OpBlockCtx, 8> op_blocks;
 			uint64_t prev_while_expiration;
+			uint8_t* data_buf;
+			uint32_t data_buf_size;
 			uint32_t objects_at_start;
 			bool need_result;
+			bool need_load_result;
 			bool is_method;
 			enum : uint8_t {
 				Scope,
@@ -64,6 +67,7 @@ namespace qacpi {
 				ObjectRef::empty(), ObjectRef::empty(), ObjectRef::empty(),
 				ObjectRef::empty(), ObjectRef::empty()
 			};
+			ObjectRef table_target {ObjectRef::empty()};
 			bool moved {};
 		};
 
@@ -129,7 +133,7 @@ namespace qacpi {
 		};
 		struct MethodArgs {
 			Method* method;
-			NamespaceNode* parent_scope;
+			NamespaceNode* method_node;
 			uint8_t remaining;
 		};
 		SmallVec<Variant<PkgLength, ObjectRef, String, MethodArgs, FieldList>, 8> objects {};

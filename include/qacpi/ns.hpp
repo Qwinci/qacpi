@@ -42,6 +42,7 @@ namespace qacpi {
 		static NamespaceNode* create(const char* name);
 
 		bool add_child(NamespaceNode* child);
+		void remove_child(NamespaceNode* child);
 
 		~NamespaceNode();
 

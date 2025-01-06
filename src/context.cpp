@@ -146,6 +146,10 @@ Context::~Context() {
 		qacpi_os_free(node, sizeof(NamespaceNode));
 		node = next;
 	}
+
+	for (auto& table : tables) {
+		qacpi_os_free(table.data, table.size);
+	}
 }
 
 Status Context::load_table(const uint8_t* aml, uint32_t size) {

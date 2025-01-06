@@ -903,7 +903,13 @@ namespace qacpi::events {
 
 		if (enable) {
 			if (!(pm1_cnt & CNT_SCI_EN_BIT)) {
-				status = qacpi_os_io_write(inner->smi_cmd, 1, inner->acpi_enable);
+				void* handle;
+				if ((status = qacpi_os_io_map(inner->smi_cmd, 1, &handle)) != Status::Success) {
+					return status;
+				}
+
+				status = qacpi_os_io_write(handle, 0, 1, inner->acpi_enable);
+				qacpi_os_io_unmap(handle);
 				if (status != Status::Success) {
 					return status;
 				}
@@ -931,7 +937,13 @@ namespace qacpi::events {
 		}
 		else {
 			if (pm1_cnt & CNT_SCI_EN_BIT) {
-				status = qacpi_os_io_write(inner->smi_cmd, 1, inner->acpi_disable);
+				void* handle;
+				if ((status = qacpi_os_io_map(inner->smi_cmd, 1, &handle)) != Status::Success) {
+					return status;
+				}
+
+				status = qacpi_os_io_write(handle, 0, 1, inner->acpi_disable);
+				qacpi_os_io_unmap(handle);
 				if (status != Status::Success) {
 					return status;
 				}
@@ -1187,8 +1199,16 @@ namespace qacpi::events {
 		Status status;
 		switch (reg.space_id) {
 			case RegionSpace::SystemIo:
-				status = qacpi_os_io_write(reg.address, 1, value);
+			{
+				void* handle;
+				if ((status = qacpi_os_io_map(reg.address, 1, &handle)) != Status::Success) {
+					return status;
+				}
+
+				status = qacpi_os_io_write(handle, 0, 1, value);
+				qacpi_os_io_unmap(handle);
 				break;
+			}
 			case RegionSpace::PciConfig:
 			{
 				qacpi::PciAddress addr {

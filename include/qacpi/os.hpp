@@ -30,11 +30,14 @@ uint64_t qacpi_os_timer();
 
 void qacpi_os_breakpoint();
 
-qacpi::Status qacpi_os_mmio_read(uint64_t phys, uint8_t size, uint64_t& res);
-qacpi::Status qacpi_os_mmio_write(uint64_t phys, uint8_t size, uint64_t value);
+void* qacpi_os_map(uintptr_t phys, size_t size);
+void qacpi_os_unmap(void* addr, size_t size);
 
-qacpi::Status qacpi_os_io_read(uint32_t port, uint8_t size, uint64_t& res);
-qacpi::Status qacpi_os_io_write(uint32_t port, uint8_t size, uint64_t value);
+qacpi::Status qacpi_os_io_map(uint64_t base, uint64_t size, void** handle);
+void qacpi_os_io_unmap(void* handle);
+
+qacpi::Status qacpi_os_io_read(void* handle, uint64_t offset, uint8_t size, uint64_t& res);
+qacpi::Status qacpi_os_io_write(void* handle, uint64_t offset, uint8_t size, uint64_t value);
 
 qacpi::Status qacpi_os_pci_read(qacpi::PciAddress address, uint64_t offset, uint8_t size, uint64_t& res);
 qacpi::Status qacpi_os_pci_write(qacpi::PciAddress address, uint64_t offset, uint8_t size, uint64_t value);

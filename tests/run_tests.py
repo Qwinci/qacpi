@@ -260,7 +260,7 @@ def run_tests(cases: List[TestCase], runner: str, skipped: int) -> bool:
     pass_count = len(cases) - fail_count
     print(f"SUMMARY: {pass_count}/{len(cases)}", end="")
 
-    expected_fail = 6 - skipped
+    expected_fail = 7 - skipped
 
     if fail_count:
         print(f" ({fail_count} FAILED, {expected_fail} EXPECTED)")

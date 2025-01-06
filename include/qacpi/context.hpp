@@ -2,6 +2,7 @@
 #include "qacpi/object.hpp"
 #include "handlers.hpp"
 #include "qacpi/status.hpp"
+#include "qacpi/small_vec.hpp"
 
 namespace qacpi {
 	struct NamespaceNode;
@@ -63,7 +64,7 @@ namespace qacpi {
 	};
 
 	struct Context {
-		constexpr Context(uint8_t revision, LogLevel log_level) : revision {revision}, log_level {log_level} {}
+		Context(uint8_t revision, LogLevel log_level) : revision {revision}, log_level {log_level} {}
 
 		Status init();
 
@@ -158,6 +159,11 @@ namespace qacpi {
 			OnlyChildren
 		};
 
+		struct Table {
+			uint8_t* data;
+			uint32_t size;
+		};
+
 		template<typename F>
 		static IterDecision node_visit_helper(Context& ctx, NamespaceNode* node, void* user_arg) {
 			auto& fn = *static_cast<remove_reference_t<F>*>(user_arg);
@@ -176,6 +182,7 @@ namespace qacpi {
 		};
 		RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
 		NamespaceNode* regions_to_reg {};
+		SmallVec<Table, 0> tables;
 		uint8_t revision;
 		LogLevel log_level;
 	};

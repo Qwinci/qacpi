@@ -62,6 +62,13 @@ namespace qacpi {
 			return _data->size;
 		}
 
+		inline uint8_t* leak() {
+			auto ptr = _data->data;
+			_data->data = nullptr;
+			_data->size = 0;
+			return ptr;
+		}
+
 	private:
 		struct Data {
 			~Data();

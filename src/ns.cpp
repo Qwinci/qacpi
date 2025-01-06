@@ -69,8 +69,8 @@ namespace qacpi {
 			if (!new_ptr) {
 				return false;
 			}
-			memcpy(new_ptr, children, child_count * sizeof(NamespaceNode*));
 			if (children) {
+				memcpy(new_ptr, children, child_count * sizeof(NamespaceNode*));
 				qacpi_os_free(children, child_cap * sizeof(NamespaceNode*));
 			}
 			children = new_ptr;
@@ -79,6 +79,18 @@ namespace qacpi {
 
 		children[child_count++] = child;
 		return true;
+	}
+
+	void NamespaceNode::remove_child(NamespaceNode* child) {
+		for (size_t i = 0; i < child_count; ++i) {
+			if (children[i] == child) {
+				for (size_t j = i + 1; j < child_count; ++j) {
+					children[j - 1] = children[j];
+				}
+				--child_count;
+				break;
+			}
+		}
 	}
 
 	NamespaceNode::~NamespaceNode() {
