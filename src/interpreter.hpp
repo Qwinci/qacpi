@@ -68,6 +68,10 @@ namespace qacpi {
 				ObjectRef::empty(), ObjectRef::empty()
 			};
 			ObjectRef table_target {ObjectRef::empty()};
+			ObjectRef load_table_param {ObjectRef::empty()};
+			String load_table_param_path {};
+			String load_table_root_path {};
+			const Table* table {};
 			bool moved {};
 		};
 

@@ -157,6 +157,7 @@ namespace qacpi {
 		void* notify_arg {};
 		uint64_t max_callstack_depth {256};
 		uint64_t loop_timeout_seconds {2};
+		bool (*table_install_handler)(const SdtHeader* hdr, void*& override);
 
 	private:
 		friend struct Interpreter;
@@ -191,7 +192,7 @@ namespace qacpi {
 		};
 		RegionSpaceHandler* region_handlers {&PCI_CONFIG_HANDLER};
 		NamespaceNode* regions_to_reg {};
-		SmallVec<InternalTable, 0> tables;
+		SmallVec<InternalTable, 0> tables {};
 		uint8_t revision;
 		LogLevel log_level;
 	};

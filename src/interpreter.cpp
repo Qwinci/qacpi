@@ -1142,14 +1142,15 @@ Status Interpreter::parse_field(FieldList& list, Frame& frame) {
 Status Interpreter::unwind_stack() {
 	while (frames.size() > 1) {
 		auto& frame_iter = frames.back();
+
+		while (objects.size() != frame_iter.objects_at_start) {
+			objects.pop_discard();
+		}
+
 		if (!frame_iter.is_method) {
 			frames.pop_discard();
 		}
 		else {
-			while (objects.size() != frame_iter.objects_at_start) {
-				objects.pop_discard();
-			}
-
 			auto& method_frame = method_frames.back();
 			if (method_frame.table_target) {
 				ObjectRef obj;
@@ -1177,6 +1178,28 @@ Status Interpreter::unwind_stack() {
 				if (frame_iter.data_buf) {
 					qacpi_os_free(frame_iter.data_buf, frame_iter.data_buf_size);
 				}
+
+				frames.pop_discard();
+				method_frames.pop_discard();
+				break;
+			}
+			else if (method_frame.load_table_param) {
+				if (frame_iter.need_load_result) {
+					ObjectRef obj;
+					if (!obj) {
+						return Status::NoMemory;
+					}
+					obj->data = uint64_t {0};
+
+					if (!objects.push(move(obj))) {
+						return Status::NoMemory;
+					}
+				}
+
+				current_scope = frame_iter.parent_scope;
+
+				// delete nodes in case of a load failure
+				method_frame.load_table_param = ObjectRef::empty();
 
 				frames.pop_discard();
 				method_frames.pop_discard();
@@ -3836,6 +3859,18 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto signature_obj = pop_and_unwrap_obj();
 			auto name = objects.pop().get_unsafe<String>();
 
+			auto* node = create_or_get_node(name, Context::SearchFlags::Create);
+			if (!node) {
+				return Status::NoMemory;
+			}
+			else if (node->object) {
+				if (context->log_level >= LogLevel::Warning) {
+					LOG << "qacpi warning: ignoring duplicate node " << name << endlog;
+				}
+				break;
+			}
+			node->parent = current_scope;
+
 			auto oem_table_id = ObjectRef::empty();
 			auto oem_id = ObjectRef::empty();
 			auto signature = ObjectRef::empty();
@@ -3851,6 +3886,38 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				status != Status::Success) {
 				return status;
 			}
+
+			auto& signature_str = signature->get_unsafe<String>();
+			auto& oem_id_str = oem_id->get_unsafe<String>();
+			auto& oem_table_id_str = oem_table_id->get_unsafe<String>();
+
+			const Table* table;
+			auto status = context->find_table_by_signature(signature_str, oem_id_str, oem_table_id_str, 0, &table);
+			if (status != Status::Success) {
+				return status;
+			}
+
+			ObjectRef obj;
+			if (!obj) {
+				return Status::NoMemory;
+			}
+
+			OpRegion region {};
+			region.ctx = context;
+			region.node = node;
+			region.offset = reinterpret_cast<uint64_t>(table->data);
+			region.size = table->size;
+			region.space = RegionSpace::TableData;
+
+			if (!region.init()) {
+				table->unref();
+				return Status::NoMemory;
+			}
+
+			obj->data = move(region);
+
+			obj->node = node;
+			node->object = move(obj);
 
 			break;
 		}
@@ -4138,6 +4205,30 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				}
 
 				auto* hdr = static_cast<SdtHeader*>(region->handle);
+				if (hdr->signature[0] != 'S' ||
+					hdr->signature[1] != 'S' ||
+					hdr->signature[2] != 'D' ||
+					hdr->signature[3] != 'T') {
+
+					ObjectRef res;
+					if (!res) {
+						return Status::NoMemory;
+					}
+
+					res->data = uint64_t {0};
+
+					if (auto status = store_to_target(target, res); status != Status::Success) {
+						return status;
+					}
+
+					if (need_result) {
+						if (!objects.push(move(res))) {
+							return Status::NoMemory;
+						}
+					}
+
+					break;
+				}
 				if (!buf.init(region->handle, hdr->length)) {
 					return Status::NoMemory;
 				}
@@ -4157,6 +4248,49 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto* hdr = reinterpret_cast<SdtHeader*>(ptr);
 			uint32_t size = hdr->length - sizeof(SdtHeader);
 			auto* data = reinterpret_cast<const uint8_t*>(&hdr[1]);
+
+			void* override {};
+			bool allow = !context->table_install_handler || context->table_install_handler(hdr, override);
+			if (override) {
+				qacpi_os_free(ptr, buf_size);
+
+				hdr = static_cast<SdtHeader*>(override);
+				if (!buf.init(override, hdr->length)) {
+					return Status::NoMemory;
+				}
+
+				ptr = buf.leak();
+				hdr = reinterpret_cast<SdtHeader*>(ptr);
+				size = hdr->length - sizeof(SdtHeader);
+				data = reinterpret_cast<const uint8_t*>(&hdr[1]);
+			}
+
+			if (hdr->signature[0] != 'S' ||
+			    hdr->signature[1] != 'S' ||
+			    hdr->signature[2] != 'D' ||
+			    hdr->signature[3] != 'T' ||
+				!allow) {
+				qacpi_os_free(ptr, buf_size);
+
+				ObjectRef res;
+				if (!res) {
+					return Status::NoMemory;
+				}
+
+				res->data = uint64_t {0};
+
+				if (auto status = store_to_target(target, res); status != Status::Success) {
+					return status;
+				}
+
+				if (need_result) {
+					if (!objects.push(move(res))) {
+						return Status::NoMemory;
+					}
+				}
+
+				break;
+			}
 
 			auto* new_frame = frames.push();
 			if (!new_frame) {
@@ -4183,6 +4317,171 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				return Status::NoMemory;
 			}
 			method_frame->table_target = move(target);
+
+			break;
+		}
+		case OpHandler::LoadTable:
+		{
+			auto param_data_obj = pop_and_unwrap_obj();
+			auto param_path_orig = pop_and_unwrap_obj();
+			auto root_path_orig = pop_and_unwrap_obj();
+			auto oem_table_id_orig = pop_and_unwrap_obj();
+			auto oem_id_orig = pop_and_unwrap_obj();
+			auto signature_orig = pop_and_unwrap_obj();
+
+			auto signature_obj = ObjectRef::empty();
+			auto oem_id_obj = ObjectRef::empty();
+			auto oem_table_id_obj = ObjectRef::empty();
+			auto root_path_obj = ObjectRef::empty();
+			auto param_path_obj = ObjectRef::empty();
+
+			if (auto status = try_convert(
+				signature_orig,
+				signature_obj,
+				{ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(
+				oem_id_orig,
+				oem_id_obj,
+				{ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(
+				oem_table_id_orig,
+				oem_table_id_obj,
+				{ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(
+				root_path_orig,
+				root_path_obj,
+				{ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(
+				param_path_orig,
+				param_path_obj,
+				{ObjectType::String});
+				status != Status::Success) {
+				return status;
+			}
+
+			auto& signature = signature_obj->get_unsafe<String>();
+			auto& oem_id = oem_id_obj->get_unsafe<String>();
+			auto& oem_table_id = oem_table_id_obj->get_unsafe<String>();
+			auto& root_path = root_path_obj->get_unsafe<String>();
+			auto& param_path = param_path_obj->get_unsafe<String>();
+
+			if (signature.size() > 4 || oem_id.size() > 6 || oem_table_id.size() > 8) {
+				return Status::InvalidArgs;
+			}
+
+			NamespaceNode* root_node;
+			if (root_path.size() > 0) {
+				root_node = create_or_get_node(root_path, Context::SearchFlags::Search);
+				if (!root_node) {
+					if (need_result) {
+						ObjectRef obj;
+						if (!obj) {
+							return Status::NoMemory;
+						}
+						obj->data = uint64_t {0};
+						if (!objects.push(move(obj))) {
+							return Status::NoMemory;
+						}
+					}
+
+					break;
+				}
+			}
+			else {
+				root_node = context->root;
+			}
+
+			const Table* table;
+			if (auto status = context->find_table_by_signature(signature, oem_id, oem_table_id, 0, &table);
+				status != Status::Success) {
+				if (need_result) {
+					ObjectRef obj;
+					if (!obj) {
+						return Status::NoMemory;
+					}
+					obj->data = uint64_t {0};
+					if (!objects.push(move(obj))) {
+						return Status::NoMemory;
+					}
+				}
+
+				break;
+			}
+
+			auto data = reinterpret_cast<const uint8_t*>(&table->hdr[1]);
+			auto size = table->size;
+
+			if (context->table_install_handler) {
+				void* override;
+				bool allow = context->table_install_handler(table->hdr, override);
+				if (!allow) {
+					table->unref();
+
+					if (need_result) {
+						ObjectRef obj;
+						if (!obj) {
+							return Status::NoMemory;
+						}
+						obj->data = uint64_t {0};
+						if (!objects.push(move(obj))) {
+							return Status::NoMemory;
+						}
+					}
+
+					break;
+				}
+
+				if (override) {
+					auto* hdr = static_cast<const SdtHeader*>(override);
+					data = reinterpret_cast<const uint8_t*>(&hdr[1]);
+					size = hdr->length;
+					table->unref();
+					table = nullptr;
+				}
+			}
+
+			auto* new_frame = frames.push();
+			if (!new_frame) {
+				if (table) {
+					table->unref();
+				}
+				return Status::NoMemory;
+			}
+			new_frame->start = data;
+			new_frame->end = data + size;
+			new_frame->ptr = data;
+			new_frame->parent_scope = current_scope;
+			new_frame->objects_at_start = objects.size();
+			new_frame->need_load_result = need_result;
+			new_frame->is_method = true;
+			new_frame->type = Frame::Scope;
+
+			current_scope = root_node;
+
+			auto* method_frame = method_frames.push();
+			if (!method_frame) {
+				if (table) {
+					table->unref();
+				}
+				frames.pop_discard();
+				return Status::NoMemory;
+			}
+			method_frame->load_table_param = move(param_data_obj);
+			method_frame->load_table_param_path = move(param_path);
+			method_frame->load_table_root_path = move(root_path);
+			method_frame->table = table;
 
 			break;
 		}
@@ -4298,6 +4597,123 @@ Status Interpreter::parse() {
 							})) {
 								return Status::NoMemory;
 							}
+						}
+					}
+					else if (method_frame.load_table_param) {
+						String real_path {};
+
+						auto& path = method_frame.load_table_param_path;
+						if (path.size() > 0) {
+							if (path.size() > 0 && (path.data()[0] == '\\' || path.data()[0] == '^')) {
+								if (!real_path.init(path.data(), path.size())) {
+									return Status::NoMemory;
+								}
+							}
+							else {
+								StringView root_path;
+								if (method_frame.load_table_root_path.size()) {
+									root_path = method_frame.load_table_root_path;
+								}
+								else {
+									root_path = "\\";
+								}
+
+								if (!real_path.init_with_size(
+									path.size() +
+									1 +
+									root_path.size)) {
+									return Status::NoMemory;
+								}
+								memcpy(
+									real_path.data(),
+									root_path.ptr,
+									root_path.size);
+								real_path.data()[root_path.size] = '.';
+								memcpy(
+									real_path.data() + root_path.size + 1,
+									path.data(),
+									path.size());
+							}
+
+							auto node = create_or_get_node(
+								real_path,
+								Context::SearchFlags::Search);
+							if (!node) {
+								if (context->log_level >= LogLevel::Error) {
+									LOG << "qacpi error: unresolved path for LoadTable parameter: "
+									    << method_frame.load_table_param_path
+									    << endlog;
+								}
+								if (frames.size() != 1) {
+									method_frame.load_table_param = ObjectRef::empty();
+									method_frames.pop_discard();
+									frames.pop_discard();
+									unwind_stack();
+									continue;
+								}
+								else {
+									return Status::NotFound;
+								}
+							}
+							else if (!node->object) {
+								if (context->log_level >= LogLevel::Error) {
+									LOG << "qacpi internal error: node "
+									    << method_frame.load_table_param_path
+									    << " lacks an object (required by LoadTable)"
+									    << endlog;
+								}
+
+								if (frames.size() != 1) {
+									method_frame.load_table_param = ObjectRef::empty();
+									method_frames.pop_discard();
+									frames.pop_discard();
+									unwind_stack();
+									continue;
+								}
+								else {
+									return Status::InternalError;
+								}
+							}
+
+							if (auto status = store_to_target(node->object, method_frame.load_table_param);
+								status != Status::Success) {
+								if (frames.size() != 1) {
+									method_frame.load_table_param = ObjectRef::empty();
+									method_frames.pop_discard();
+									frames.pop_discard();
+									unwind_stack();
+									continue;
+								}
+								else {
+									return status;
+								}
+							}
+						}
+
+						while (objects.size() != frame.objects_at_start) {
+							objects.pop_discard();
+						}
+
+						if (frame.need_load_result) {
+							ObjectRef obj;
+							if (!obj) {
+								return Status::NoMemory;
+							}
+							obj->data = uint64_t {0xFFFFFFFFFFFFFFFF};
+							if (!objects.push(move(obj))) {
+								return Status::NoMemory;
+							}
+						}
+
+						if (method_frame.node_link) {
+							// todo improve this
+							auto* node = method_frame.node_link;
+							while (node->link) {
+								node = node->link;
+							}
+
+							node->link = context->all_nodes;
+							context->all_nodes = method_frame.node_link;
 						}
 					}
 
@@ -4901,7 +5317,7 @@ Status Interpreter::read_field(Field* field, ObjectRef& dest) {
 	return Status::Success;
 }
 
-static Status write_field_from_buffer(Field* field, const uint8_t* value) {
+static Status write_field_from_buffer(Field* field, const uint8_t* value, uint32_t size) {
 	uint32_t access_bits = field->access_size * 8;
 
 	uint32_t byte_offset = (field->bit_offset & ~(access_bits - 1)) / 8;
@@ -4973,7 +5389,10 @@ static Status write_field_from_buffer(Field* field, const uint8_t* value) {
 		new_value &= ~(size_mask << bit_offset_within_access);
 
 		uint64_t tmp = 0;
-		memcpy(&tmp, value + i / 8, (bits + 7) / 8);
+		if (i / 8 < size) {
+			auto to_copy = QACPI_MIN((bits + 7) / 8, size - i / 8);
+			memcpy(&tmp, value + i / 8, to_copy);
+		}
 		tmp >>= i % 8;
 		tmp &= size_mask;
 
@@ -5032,15 +5451,15 @@ static Status write_field_from_buffer(Field* field, const uint8_t* value) {
 }
 
 Status Interpreter::write_field(Field* field, const ObjectRef& value) {
-	if (field->bit_size > 64) {
+	if (field->bit_size > 64 && value->get<Buffer>()) {
 		auto& buffer_value = value->get_unsafe<Buffer>();
 
-		return write_field_from_buffer(field, buffer_value.data());
+		return write_field_from_buffer(field, buffer_value.data(), buffer_value.size());
 	}
 	else {
 		auto int_value = value->get_unsafe<uint64_t>();
 
-		return write_field_from_buffer(field, reinterpret_cast<const uint8_t*>(&int_value));
+		return write_field_from_buffer(field, reinterpret_cast<const uint8_t*>(&int_value), 8);
 	}
 
 	return Status::Success;
@@ -5056,6 +5475,10 @@ Interpreter::MethodFrame::MethodFrame(Interpreter::MethodFrame&& other) noexcept
 	node_link = other.node_link;
 	mutex_link = other.mutex_link;
 	serialize_mutex = move(other.serialize_mutex);
+	table_target = move(other.table_target);
+	load_table_param = move(other.load_table_param);
+	load_table_param_path = move(other.load_table_param_path);
+	load_table_root_path = move(other.load_table_root_path);
 	other.moved = true;
 }
 
@@ -5077,7 +5500,7 @@ Interpreter::MethodFrame::~MethodFrame() {
 			mutex = mutex->next;
 		}
 
-		if (!table_target) {
+		if (!table_target && !load_table_param) {
 			NamespaceNode* node = node_link;
 			while (node) {
 				node->parent->remove_child(node);

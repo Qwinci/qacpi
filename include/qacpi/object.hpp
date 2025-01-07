@@ -202,6 +202,11 @@ namespace qacpi {
 		}
 
 		template<typename T>
+		inline const T* get() const {
+			return data.get<T>();
+		}
+
+		template<typename T>
 		inline T& get_unsafe() {
 			return data.get_unsafe<T>();
 		}

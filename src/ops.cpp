@@ -403,6 +403,15 @@ namespace qacpi {
 			Op::NameString,
 			Op::CallHandler
 		}, OpHandler::CreateField};
+		res[LoadTableOp] = {7, {
+			Op::TermArg,
+			Op::TermArg,
+			Op::TermArg,
+			Op::TermArg,
+			Op::TermArg,
+			Op::TermArg,
+			Op::CallHandler
+		}, OpHandler::LoadTable};
 		res[LoadOp] = {3, {
 			Op::NameString,
 			Op::SuperName,

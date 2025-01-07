@@ -367,14 +367,21 @@ Status Context::find_table_by_signature(
 	StringView oem_table_id,
 	uint32_t index,
 	const Table** table) {
-	if (name.size != 4 || oem_id.size != 6 || oem_table_id.size != 8) {
+	if (name.size > 4 || oem_id.size > 6 || oem_table_id.size > 8) {
 		return Status::InvalidArgs;
 	}
 
+	char name_buf[4] {};
+	char oem_id_buf[6] {};
+	char oem_table_id_buf[8] {};
+	memcpy(name_buf, name.ptr, name.size);
+	memcpy(oem_id_buf, oem_id.ptr, oem_id.size);
+	memcpy(oem_table_id_buf, oem_table_id.ptr, oem_table_id.size);
+
 	for (auto& tab : tables) {
-		if (memcmp(tab.table.signature.name, name.ptr, 4) == 0 &&
-			memcmp(tab.table.signature.oem_id, oem_id.ptr, 6) == 0 &&
-			memcmp(tab.table.signature.oem_table_id, oem_table_id.ptr, 8) == 0) {
+		if ((!name_buf[0] || memcmp(tab.table.signature.name, name_buf, 4) == 0) &&
+			(!oem_id_buf[0] || memcmp(tab.table.signature.oem_id, oem_id_buf, 6) == 0) &&
+			(!oem_table_id_buf[0] || memcmp(tab.table.signature.oem_table_id, oem_table_id_buf, 8) == 0)) {
 			if (index == 0) {
 				if (!tab.table.data) {
 					auto* ptr = static_cast<SdtHeader*>(qacpi_os_map(tab.table.phys, tab.table.size));
@@ -382,10 +389,11 @@ Status Context::find_table_by_signature(
 						return Status::NoMemory;
 					}
 					tab.table.hdr = ptr;
-					++tab.refs;
-					*table = &tab.table;
-					return Status::Success;
 				}
+
+				++tab.refs;
+				*table = &tab.table;
+				return Status::Success;
 			}
 			else {
 				--index;
@@ -417,7 +425,7 @@ Status Context::load_namespace() {
 
 	if (auto status = load_table(data, dsdt->size - sizeof(SdtHeader));
 		status != Status::Success) {
-		return status;
+		LOG << "qacpi warning: dsdt load failed with status " << status_to_str(status) << endlog;
 	}
 
 	for (uint32_t i = 0;; ++i) {
@@ -427,6 +435,7 @@ Status Context::load_namespace() {
 			break;
 		}
 		else if (status != Status::Success) {
+			LOG << "qacpi warning: ssdt table get failed with status " << status_to_str(status) << endlog;
 			return status;
 		}
 
@@ -434,7 +443,7 @@ Status Context::load_namespace() {
 
 		if (status = load_table(data, ssdt->size - sizeof(SdtHeader));
 			status != Status::Success) {
-			return status;
+			LOG << "qacpi warning: ssdt load failed with status " << status_to_str(status) << endlog;
 		}
 	}
 
@@ -992,6 +1001,11 @@ NamespaceNode* Context::create_or_find_node(NamespaceNode* start, void* method_f
 		--size;
 		if (!size) {
 			return node;
+		}
+
+		if (*ptr == '.') {
+			++ptr;
+			--size;
 		}
 	}
 	else if (*ptr == '^') {
