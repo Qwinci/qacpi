@@ -255,6 +255,7 @@ static void run_test(
 	};
 
 	qacpi::Context ctx {};
+	ctx.loop_timeout_seconds = 10;
 	ctx.table_install_handler = [](const qacpi::SdtHeader* hdr, void*& override) {
 		if (strncmp(hdr->oem_table_id, "DENYTABL", 8) == 0) {
 			return false;

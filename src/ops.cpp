@@ -224,6 +224,12 @@ namespace qacpi {
 			Op::TermArg,
 			Op::CallHandler
 		}, OpHandler::DerefOf};
+		res[ConcatResOp] = {4, {
+			Op::TermArg,
+			Op::TermArg,
+			Op::SuperName,
+			Op::CallHandler
+		}, OpHandler::ConcatRes};
 		res[ModOp] = {4, {
 			Op::TermArg,
 			Op::TermArg,

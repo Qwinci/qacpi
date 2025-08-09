@@ -189,6 +189,7 @@ namespace qacpi {
 		uint32_t total_bit_size;
 		uint8_t bit_offset;
 		uint8_t bit_size;
+		bool index;
 	};
 
 	struct NamespaceNode;

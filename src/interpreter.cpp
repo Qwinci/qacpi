@@ -2,6 +2,7 @@
 #include "aml_ops.hpp"
 #include "qacpi/ns.hpp"
 #include "qacpi/tables.hpp"
+#include "qacpi/resources.hpp"
 #include "logger.hpp"
 #include "internal.hpp"
 
@@ -1810,9 +1811,32 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto& target = unwrap_refs(orig_target);
 
 			if (need_result) {
-				ObjectRef obj;
-				if (!obj || !target->data.clone(obj->data) || !objects.push(move(obj))) {
-					return Status::NoMemory;
+				if (auto buffer_field = target->get<BufferField>();
+					buffer_field && buffer_field->index) {
+					uint64_t value = 0;
+					if (auto buffer = buffer_field->owner->get<Buffer>()) {
+						memcpy(&value, buffer->data() + buffer_field->byte_offset, QACPI_MIN(buffer->size(), 1));
+					}
+					else {
+						auto& str = buffer_field->owner->get_unsafe<String>();
+						memcpy(&value, str.data() + buffer_field->byte_offset, QACPI_MIN(str.size(), 1));
+					}
+
+					ObjectRef obj;
+					if (!obj) {
+						return Status::NoMemory;
+					}
+					obj->data = value;
+
+					if (!objects.push(move(obj))) {
+						return Status::NoMemory;
+					}
+				}
+				else {
+					ObjectRef obj;
+					if (!obj || !target->data.clone(obj->data) || !objects.push(move(obj))) {
+						return Status::NoMemory;
+					}
 				}
 			}
 
@@ -1979,7 +2003,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					.byte_size = 1,
 					.total_bit_size = 8,
 					.bit_offset = 0,
-					.bit_size = 0
+					.bit_size = 0,
+					.index = true
 				};
 				ref->data = Ref {.type = Ref::RefOf, .inner {move(field)}};
 			}
@@ -1998,7 +2023,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 					.byte_size = 1,
 					.total_bit_size = 8,
 					.bit_offset = 0,
-					.bit_size = 0
+					.bit_size = 0,
+					.index = true
 				};
 				ref->data = Ref {.type = Ref::RefOf, .inner {move(field)}};
 			}
@@ -2231,7 +2257,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				.byte_size = byte_size,
 				.total_bit_size = num_bits,
 				.bit_offset = static_cast<uint8_t>(bit_index % 8),
-				.bit_size = static_cast<uint8_t>(num_bits % 8)
+				.bit_size = static_cast<uint8_t>(num_bits % 8),
+				.index = false
 			};
 			obj->node = node;
 			node->object = move(obj);
@@ -3380,7 +3407,8 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				.byte_size = byte_size,
 				.total_bit_size = total_bit_size,
 				.bit_offset = bit_offset,
-				.bit_size = bit_size
+				.bit_size = bit_size,
+				.index = false
 			};
 			obj->node = node;
 			node->object = move(obj);
@@ -4421,7 +4449,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			}
 
 			auto data = reinterpret_cast<const uint8_t*>(&table->hdr[1]);
-			auto size = table->size;
+			uint32_t size = table->size - sizeof(SdtHeader);
 
 			if (context->table_install_handler) {
 				void* override;
@@ -4446,7 +4474,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				if (override) {
 					auto* hdr = static_cast<const SdtHeader*>(override);
 					data = reinterpret_cast<const uint8_t*>(&hdr[1]);
-					size = hdr->length;
+					size = hdr->length - sizeof(SdtHeader);
 					table->unref();
 					table = nullptr;
 				}
@@ -4482,6 +4510,143 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			method_frame->load_table_param_path = move(param_path);
 			method_frame->load_table_root_path = move(root_path);
 			method_frame->table = table;
+
+			break;
+		}
+		case OpHandler::ConcatRes:
+		{
+			auto target = objects.pop().get_unsafe<ObjectRef>();
+			auto src2_orig = pop_and_unwrap_obj();
+			auto src1_orig = pop_and_unwrap_obj();
+
+			auto src1_obj = ObjectRef::empty();
+			auto src2_obj = ObjectRef::empty();
+			if (auto status = try_convert(
+				src1_orig,
+				src1_obj,
+				{ObjectType::Buffer});
+				status != Status::Success) {
+				return status;
+			}
+			if (auto status = try_convert(
+				src2_orig,
+				src2_obj,
+				{ObjectType::Buffer});
+				status != Status::Success) {
+				return status;
+			}
+
+			auto& src1 = src1_obj->get_unsafe<Buffer>();
+			auto& src2 = src2_obj->get_unsafe<Buffer>();
+
+			if (src1.size() == 1 || src2.size() == 1) {
+				return Status::InvalidArgs;
+			}
+
+			Buffer buf {};
+
+			auto create_end_tag = [&]() {
+				auto data = buf.data();
+				data[buf.size() - 2] = 0x79;
+				data[buf.size() - 1] = 0;
+			};
+
+			if (src1.size() == 0 && src2.size() == 0) {
+				if (!buf.init_with_size(2)) {
+					return Status::NoMemory;
+				}
+				create_end_tag();
+			}
+			else if (src1.size() != 0) {
+				size_t offset = 0;
+				Resource res;
+				while (true) {
+					auto status = resource_parse(
+						src1.data(),
+						src1.size(),
+						offset,
+						res);
+					if (status == Status::EndOfResources) {
+						break;
+					}
+					else if (status != Status::Success) {
+						return status;
+					}
+				}
+
+				if (src2.size() == 0) {
+					if (!buf.init_with_size(offset)) {
+						return Status::NoMemory;
+					}
+
+					memcpy(buf.data(), src1.data(), offset - 2);
+					create_end_tag();
+				}
+				else {
+					size_t offset2 = 0;
+					while (true) {
+						auto status = resource_parse(
+							src2.data(),
+							src2.size(),
+							offset2,
+							res);
+						if (status == Status::EndOfResources) {
+							break;
+						}
+						else if (status != Status::Success) {
+							return status;
+						}
+					}
+
+					if (!buf.init_with_size(offset + (offset2 - 2))) {
+						return Status::NoMemory;
+					}
+
+					memcpy(buf.data(), src1.data(), offset - 2);
+					memcpy(buf.data() + (offset - 2), src2.data(), offset2 - 2);
+					create_end_tag();
+				}
+			}
+			else {
+				size_t offset = 0;
+				Resource res;
+				while (true) {
+					auto status = resource_parse(
+						src2.data(),
+						src2.size(),
+						offset,
+						res);
+					if (status == Status::EndOfResources) {
+						break;
+					}
+					else if (status != Status::Success) {
+						return status;
+					}
+				}
+
+				if (!buf.init_with_size(offset)) {
+					return Status::NoMemory;
+				}
+
+				memcpy(buf.data(), src2.data(), offset - 2);
+				create_end_tag();
+			}
+
+			ObjectRef obj;
+			if (!obj) {
+				return Status::NoMemory;
+			}
+			obj->data = move(buf);
+
+			if (auto status = store_to_target(target, obj); status != Status::Success) {
+				return status;
+			}
+
+			if (need_result) {
+				if (!objects.push(move(obj))) {
+					return Status::NoMemory;
+				}
+			}
 
 			break;
 		}
