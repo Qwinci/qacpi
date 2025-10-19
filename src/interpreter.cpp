@@ -581,32 +581,11 @@ Status Interpreter::try_convert(ObjectRef& object, ObjectRef& res, const ObjectT
 			return Status::Success;
 		}
 		else if (find_type(ObjectType::String)) {
-			String str;
-			auto display_bytes = (field->bit_size + 7) / 8;
-			if (!str.init_with_size(display_bytes * 2 + (display_bytes ? (display_bytes - 1) : 0))) {
-				return Status::NoMemory;
-			}
-
-			auto* data = str.data();
-
 			if (auto status = read_field(field, res); status != Status::Success) {
 				return status;
 			}
 
-			uint64_t value = res->get_unsafe<uint64_t>();
-			for (uint32_t i = 0; i < display_bytes; ++i) {
-				uint8_t byte = value;
-				data[1] = CHARS[byte % 16];
-				data[0] = CHARS[byte / 16 % 16];
-				data += 2;
-				if (i + 1 < display_bytes) {
-					*data++ = ' ';
-				}
-				value >>= 8;
-			}
-
-			res->data = move(str);
-			return Status::Success;
+			return try_convert(res, res, {ObjectType::String});
 		}
 	}
 	else if (auto integer = real->get<uint64_t>()) {
