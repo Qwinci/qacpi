@@ -2907,38 +2907,139 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 				break;
 			}
 
+			auto op = block.block->handler;
+
 			auto lhs_value = ObjectRef::empty();
-			if (auto status = try_convert(lhs_orig, lhs_value, {ObjectType::Integer});
-				status != Status::Success) {
-				return status;
+
+			if (op == OpHandler::LEqual || op == OpHandler::LGreater ||
+				op == OpHandler::LLess) {
+				auto status = try_convert(
+					lhs_orig,
+					lhs_value,
+					{ObjectType::Integer, ObjectType::String, ObjectType::Buffer});
+				if (status != Status::Success) {
+					return status;
+				}
 			}
+			else {
+				if (auto status = try_convert(lhs_orig, lhs_value, {ObjectType::Integer});
+					status != Status::Success) {
+					return status;
+				}
+			}
+
+			auto type = static_cast<ObjectType>(lhs_value->data.index());
 
 			auto rhs_value = ObjectRef::empty();
-			if (auto status = try_convert(rhs_orig, rhs_value, {ObjectType::Integer});
+			if (auto status = try_convert(rhs_orig, rhs_value, {type});
 				status != Status::Success) {
 				return status;
 			}
-
-			auto lhs = lhs_value->get_unsafe<uint64_t>();
-			auto rhs = rhs_value->get_unsafe<uint64_t>();
 
 			uint64_t result;
 			switch (block.block->handler) {
 				case OpHandler::LAnd:
+				{
+					auto lhs = lhs_value->get_unsafe<uint64_t>();
+					auto rhs = rhs_value->get_unsafe<uint64_t>();
 					result = lhs && rhs;
 					break;
+				}
 				case OpHandler::LOr:
+				{
+					auto lhs = lhs_value->get_unsafe<uint64_t>();
+					auto rhs = rhs_value->get_unsafe<uint64_t>();
 					result = lhs || rhs;
 					break;
+				}
 				case OpHandler::LEqual:
-					result = lhs == rhs;
+				{
+					if (type == ObjectType::Integer) {
+						auto lhs = lhs_value->get_unsafe<uint64_t>();
+						auto rhs = rhs_value->get_unsafe<uint64_t>();
+						result = lhs == rhs;
+					}
+					else if (type == ObjectType::String) {
+						auto& lhs = lhs_value->get_unsafe<String>();
+						auto& rhs = rhs_value->get_unsafe<String>();
+						result = lhs.size() == rhs.size() && memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+					}
+					else {
+						auto& lhs = lhs_value->get_unsafe<Buffer>();
+						auto& rhs = rhs_value->get_unsafe<Buffer>();
+						result = lhs.size() == rhs.size() && memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+					}
+
 					break;
+				}
 				case OpHandler::LGreater:
-					result = lhs > rhs;
+				{
+					if (type == ObjectType::Integer) {
+						auto lhs = lhs_value->get_unsafe<uint64_t>();
+						auto rhs = rhs_value->get_unsafe<uint64_t>();
+						result = lhs > rhs;
+					}
+					else if (type == ObjectType::String) {
+						auto& lhs = lhs_value->get_unsafe<String>();
+						auto& rhs = rhs_value->get_unsafe<String>();
+
+						auto cmp_count = QACPI_MIN(lhs.size(), rhs.size());
+
+						int res = memcmp(lhs.data(), rhs.data(), cmp_count);
+						if (res == 0) {
+							res = lhs.size() > rhs.size();
+						}
+						result = res > 0;
+					}
+					else {
+						auto& lhs = lhs_value->get_unsafe<Buffer>();
+						auto& rhs = rhs_value->get_unsafe<Buffer>();
+
+						auto cmp_count = QACPI_MIN(lhs.size(), rhs.size());
+
+						int res = memcmp(lhs.data(), rhs.data(), cmp_count);
+						if (res == 0) {
+							res = lhs.size() > rhs.size();
+						}
+						result = res > 0;
+					}
+
 					break;
+				}
 				case OpHandler::LLess:
-					result = lhs < rhs;
+				{
+					if (type == ObjectType::Integer) {
+						auto lhs = lhs_value->get_unsafe<uint64_t>();
+						auto rhs = rhs_value->get_unsafe<uint64_t>();
+						result = lhs < rhs;
+					}
+					else if (type == ObjectType::String) {
+						auto& lhs = lhs_value->get_unsafe<String>();
+						auto& rhs = rhs_value->get_unsafe<String>();
+
+						auto cmp_count = QACPI_MIN(lhs.size(), rhs.size());
+
+						int res = memcmp(lhs.data(), rhs.data(), cmp_count);
+						if (res == 0) {
+							res = lhs.size() < rhs.size() ? -1 : 0;
+						}
+						result = res < 0;
+					}
+					else {
+						auto& lhs = lhs_value->get_unsafe<Buffer>();
+						auto& rhs = rhs_value->get_unsafe<Buffer>();
+
+						auto cmp_count = QACPI_MIN(lhs.size(), rhs.size());
+
+						int res = memcmp(lhs.data(), rhs.data(), cmp_count);
+						if (res == 0) {
+							res = lhs.size() < rhs.size() ? -1 : 0;
+						}
+						result = res < 0;
+					}
+
 					break;
+				}
 				default:
 					break;
 			}
