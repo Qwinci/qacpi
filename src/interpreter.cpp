@@ -3188,7 +3188,11 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			auto value = pop_and_unwrap_obj();
 
 			if (method_frames.is_empty()) {
-				return Status::InvalidAml;
+				while (frames.size() > 1) {
+					frames.pop_discard();
+				}
+				frames[0].ptr = frames[0].end;
+				break;
 			}
 
 			while (true) {
