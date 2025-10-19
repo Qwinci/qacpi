@@ -4536,7 +4536,7 @@ Status Interpreter::handle_op(Interpreter::Frame& frame, const OpBlockCtx& block
 			uint32_t size = table->size - sizeof(SdtHeader);
 
 			if (context->table_install_handler) {
-				void* override;
+				void* override = nullptr;
 				bool allow = context->table_install_handler(table->hdr, override);
 				if (!allow) {
 					table->unref();
