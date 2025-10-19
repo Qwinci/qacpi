@@ -5,7 +5,12 @@ jobs:
   build-and-run-tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Disable initramfs update
+        run: sudo sed -i 's/yes/no/g' /etc/initramfs-tools/update-initramfs.conf
+
+      - name: Disable man-db update
+        run: sudo rm -f /var/lib/man-db/auto-update
+
       - name: Install tools & libraries (Ubuntu)
         run: |
           sudo apt update
@@ -13,8 +18,12 @@ jobs:
           # https://github.com/actions/runner-images/issues/9491#issuecomment-1989718917
           sudo sysctl vm.mmap_rnd_bits=28
 
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Run tests (64-bit)
         run: python3 ${{ github.workspace }}/tests/run_tests.py --bitness=64
+
       - name: Run tests (32-bit)
         run: python3 ${{ github.workspace }}/tests/run_tests.py --bitness=32
 
